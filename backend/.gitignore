@@ -1,0 +1,10 @@
+# Keep local environment and runtime files out of Git.
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite3
+.pytest_cache/
