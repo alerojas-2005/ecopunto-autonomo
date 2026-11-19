@@ -2,7 +2,8 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import { Icon, type IconName } from './Icon'
 
 export function Button({ children, variant = 'primary', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' }) {
-  return <button className={`button button-${variant}`} {...props}>{children}</button>
+  const { className, ...buttonProps } = props
+  return <button className={`button button-${variant}${className ? ` ${className}` : ''}`} {...buttonProps}>{children}</button>
 }
 
 export function StatCard({ label, value, detail, icon, tone = 'green' }: { label: string; value: string; detail: string; icon: IconName; tone?: 'green' | 'mint' | 'amber' | 'blue' }) {
