@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ApiError } from '../api/client'
 import { getEcoPointCompartments, getEcoPoints, getMaterials } from '../api/catalog'
-import type { CompartmentSummary, EcoPointSummary, MaterialSummary } from '../api/types'
+import { createDeposit, getMyDeposits } from '../api/deposits'
+import { getPointsBalance, getPointTransactions } from '../api/points'
+import type { BalanceSummary, CompartmentSummary, DepositSummary, EcoPointSummary, MaterialSummary } from '../api/types'
 import { useAuth } from '../auth/useAuth'
 import { Button, SectionHeading } from './UI'
 import { Icon } from './Icon'
@@ -34,6 +36,11 @@ export function DepositForm() {
   const [compartmentsError, setCompartmentsError] = useState('')
   const [selectedCompartmentId, setSelectedCompartmentId] = useState('')
   const [weightGrams, setWeightGrams] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const submitLock = useRef(false)
+  const [success, setSuccess] = useState<{ deposit: DepositSummary; balance: BalanceSummary | null; depositCount: number | null; transactionCount: number | null; refreshed: boolean } | null>(null)
+  const [submitError, setSubmitError] = useState('')
+  const [refreshError, setRefreshError] = useState('')
   const compartmentRequest = useRef<AbortController | null>(null)
 
   useEffect(() => {
@@ -119,11 +126,74 @@ export function DepositForm() {
   const weightIsValid = /^\d+$/.test(weightGrams) && Number.isSafeInteger(weightNumber) && weightNumber > 0 && weightNumber <= 100_000
   const selectionReady = Boolean(selectedEcopointId && selectedMaterialId && selectedCompartment && weightIsValid)
 
+  const submitDeposit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!token || !selectionReady || !selectedCompartment || submitLock.current) return
+    submitLock.current = true
+    setSubmitting(true)
+    setSubmitError('')
+    setRefreshError('')
+    setSuccess(null)
+    try {
+      const deposit = await createDeposit({
+        ecopoint_id: selectedEcopointId,
+        material_id: selectedMaterialId,
+        compartment_id: selectedCompartment.id,
+        weight_g: weightNumber,
+      }, token)
+      const [compartmentResult, balanceResult, depositsResult, transactionsResult] = await Promise.allSettled([
+        getEcoPointCompartments(selectedEcopointId, token),
+        getPointsBalance(token),
+        getMyDeposits(token),
+        getPointTransactions(token),
+      ])
+      const unauthorized = [compartmentResult, balanceResult, depositsResult, transactionsResult].some(
+        result => result.status === 'rejected' && result.reason instanceof ApiError && result.reason.isUnauthorized,
+      )
+      if (unauthorized) {
+        logout()
+        return
+      }
+      if (compartmentResult.status === 'fulfilled') {
+        const freshCompartments = compartmentResult.value.filter(item => item.active)
+        setCompartments(freshCompartments)
+        if (!freshCompartments.some(item => item.id === selectedCompartment.id)) setSelectedCompartmentId('')
+      }
+      const balance = balanceResult.status === 'fulfilled' ? balanceResult.value : null
+      const refreshed = compartmentResult.status === 'fulfilled' && balanceResult.status === 'fulfilled'
+        && depositsResult.status === 'fulfilled' && transactionsResult.status === 'fulfilled'
+      setSuccess({
+        deposit,
+        balance,
+        depositCount: depositsResult.status === 'fulfilled' ? depositsResult.value.length : null,
+        transactionCount: transactionsResult.status === 'fulfilled' ? transactionsResult.value.length : null,
+        refreshed,
+      })
+      if (!refreshed) setRefreshError('El depósito quedó registrado, pero no fue posible actualizar todas las consultas. Puedes volver a cargar la pantalla.')
+    } catch (error) {
+      if (error instanceof ApiError && error.isUnauthorized) {
+        logout()
+        return
+      }
+      if (error instanceof ApiError) {
+        if (error.status === 403) setSubmitError('Tu perfil no tiene permiso para registrar depósitos. Inicia sesión con una cuenta ciudadana.')
+        else if (error.status === 404) setSubmitError('El EcoPunto, material o compartimento ya no está disponible. Actualiza los catálogos e inténtalo de nuevo.')
+        else if (error.status === 422) setSubmitError(`El backend rechazó los datos del depósito: ${error.message}`)
+        else if (error.status === 400 || error.status === 409) setSubmitError(error.message)
+        else setSubmitError(`No se pudo registrar el depósito: ${error.message}`)
+      } else setSubmitError(errorText(error))
+    } finally {
+      submitLock.current = false
+      setSubmitting(false)
+    }
+  }
+
   const retryCatalogs = () => {
     setCatalogLoading(true)
     setCatalogAttempt(attempt => attempt + 1)
   }
 
+  const selectedEcopoint = ecopoints.find(item => item.id === selectedEcopointId)
   return <section className="panel form-panel deposit-form">
     <div className="deposit-intro"><SectionHeading eyebrow="APORTE VIRTUAL" title="Prepara tu depósito"/><p>Selecciona un EcoPunto, el material y el peso que vas a depositar. Los datos de selección se consultan desde EcoPunto.</p></div>
 
@@ -131,6 +201,10 @@ export function DepositForm() {
     {catalogLoading && <div className="deposit-loading" role="status"><span className="deposit-spinner"/> Consultando EcoPuntos y materiales…</div>}
     {!catalogLoading && !ecopointError && !materialError && ecopoints.length > 0 && materials.length > 0 && <div className="deposit-catalog-ready" role="status"><Icon name="check" size={16}/> Catálogos cargados. Elige un EcoPunto y un material para consultar sus compartimentos.</div>}
 
+    {success && <div className="deposit-success" role="status"><Icon name="check" size={20}/><div><strong>Depósito registrado correctamente</strong><span>{selectedMaterial?.name ?? 'Material'} · {success.deposit.weight_g.toLocaleString('es-CO')} g en {selectedEcopoint?.name ?? 'el EcoPunto seleccionado'}.</span><span>El backend otorgó {decimalText(success.deposit.points_awarded)} EcoPuntos.</span>{success.balance && <span>Saldo actualizado: {decimalText(success.balance.balance)} EcoPuntos.</span>}{success.depositCount !== null && <span>Historial: {success.depositCount} depósitos · Transacciones: {success.transactionCount ?? 'sin actualizar'}.</span>}<small>{success.refreshed ? 'Compartimento, saldo, historial y transacciones consultados nuevamente.' : 'El depósito está confirmado; algunas consultas de actualización no respondieron.'}</small></div></div>}
+    {submitError && <div className="deposit-submit-error" role="alert"><Icon name="info" size={17}/><span>{submitError}</span></div>}
+    {refreshError && <div className="deposit-refresh-note" role="status">{refreshError}</div>}
+    <form onSubmit={submitDeposit}>
     <div className="deposit-fields">
       <label className="deposit-field"><span>EcoPunto</span><select value={selectedEcopointId} onChange={event => selectEcopoint(event.target.value)} disabled={catalogLoading || Boolean(ecopointError) || ecopoints.length === 0}><option value="">Selecciona un EcoPunto</option>{ecopoints.map(item => <option key={item.id} value={item.id}>{item.name} · {item.address}</option>)}</select>{!catalogLoading && !ecopointError && ecopoints.length === 0 && <small>No hay EcoPuntos activos disponibles.</small>}</label>
       <label className="deposit-field"><span>Material</span><select value={selectedMaterialId} onChange={event => { setSelectedMaterialId(event.target.value); setSelectedCompartmentId('') }} disabled={catalogLoading || Boolean(materialError) || materials.length === 0}><option value="">Selecciona un material</option>{materials.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>{!catalogLoading && !materialError && materials.length === 0 && <small>No hay materiales activos disponibles.</small>}</label>
@@ -146,7 +220,8 @@ export function DepositForm() {
 
     <label className="deposit-field weight-field"><span>Peso del material</span><div className="weight-input-wrap"><input type="number" min="1" max="100000" step="1" inputMode="numeric" value={weightGrams} onChange={event => setWeightGrams(event.target.value)} placeholder="Ej. 250"/><span>gramos</span></div><small>Ingresa un peso entero mayor que cero, hasta 100.000 gramos.</small></label>
 
-    {selectionReady && <div className="deposit-ready"><Icon name="check" size={17}/><span>Selección lista para continuar con el simulador virtual en la siguiente etapa.</span></div>}
-    <div className="deposit-next-step"><span>El registro y cálculo de puntos se conectarán en la siguiente etapa.</span><Button type="button" disabled>Continuar al simulador <Icon name="arrow" size={16}/></Button></div>
+    {selectionReady && <div className="deposit-ready"><Icon name="check" size={17}/><span>Listo para registrar el depósito virtual. Los puntos serán calculados por el backend.</span></div>}
+    <div className="deposit-next-step"><span>El registro actualizará el compartimento y el saldo en el servidor.</span><Button type="submit" disabled={!selectionReady || submitting}>{submitting ? <>Registrando…</> : <>Registrar depósito <Icon name="arrow" size={16}/></>}</Button></div>
+    </form>
   </section>
 }

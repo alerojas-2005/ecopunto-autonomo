@@ -55,6 +55,35 @@ export interface CompartmentSummary {
   fill_percentage: ApiDecimal
 }
 
+export interface DepositCreate {
+  ecopoint_id: string
+  compartment_id: string
+  material_id: string
+  weight_g: number
+}
+
+export interface DepositSummary extends DepositCreate {
+  id: string
+  citizen_id: string
+  factor_applied: ApiDecimal
+  points_awarded: ApiDecimal
+  created_at: string
+}
+
+export interface BalanceSummary {
+  balance: ApiDecimal
+}
+
+export interface PointTransactionSummary {
+  id: string
+  user_id: string
+  deposit_id: string | null
+  type: 'EARN' | 'REDEEM' | string
+  amount: ApiDecimal
+  description: string
+  created_at: string
+}
+
 export interface AuthSession {
   token: string
   user: UserProfile
