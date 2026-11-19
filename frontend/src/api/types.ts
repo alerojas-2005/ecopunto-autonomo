@@ -55,6 +55,40 @@ export interface CompartmentSummary {
   fill_percentage: ApiDecimal
 }
 
+export interface EcoPointCreate {
+  code: string
+  name: string
+  address: string
+  active: boolean
+}
+
+export type EcoPointPatch = Partial<EcoPointCreate>
+
+export interface MaterialCreate {
+  name: string
+  description: string | null
+  points_per_gram: ApiDecimal
+  active: boolean
+}
+
+export type MaterialPatch = Partial<MaterialCreate>
+
+export interface CompartmentCreate {
+  material_id: string
+  label: string
+  capacity_kg: ApiDecimal
+  current_kg: ApiDecimal
+  fill_threshold_pct: number
+  active: boolean
+}
+
+export interface CompartmentPatch {
+  label?: string
+  capacity_kg?: ApiDecimal
+  fill_threshold_pct?: number
+  active?: boolean
+}
+
 export interface DepositCreate {
   ecopoint_id: string
   compartment_id: string
