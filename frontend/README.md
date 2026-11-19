@@ -1,75 +1,36 @@
-# React + TypeScript + Vite
+# Frontend EcoPunto
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Cliente web de EcoPunto Autónomo creado con React, TypeScript y Vite. La guía de instalación completa, variables, roles, backend y trabajo colaborativo está en el [README principal](../README.md).
 
-Currently, two official plugins are available:
+## Requisitos
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Node.js compatible con Vite 8: Node `^20.19.0` o `>=22.12.0`.
+- npm.
+- Backend ejecutándose en `http://127.0.0.1:8000` para usar las funciones conectadas.
 
-## React Compiler
+Las dependencias exactas de proyecto se declaran en `package.json` y `package-lock.json`.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Instalación local
 
-## Expanding the ESLint configuration
+Desde `frontend/`, crea `.env` solo si no existe y luego instala dependencias usando el lockfile:
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+npm ci
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+`VITE_API_BASE_URL` define la URL base de la API. El valor local de ejemplo es `http://127.0.0.1:8000/api/v1`. `.env` es local y no debe subirse.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Ejecutar y validar
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```powershell
+npm run dev
+npm run lint
+npm run build
 ```
+
+Vite mostrará la dirección local del frontend, normalmente `http://localhost:5173`. Para el uso de frontend y backend en dos terminales, consulta la sección [Ejecución simultánea](../README.md#ejecutar-ambos-componentes).
+
+## Estado funcional
+
+La autenticación y el registro de depósitos del ciudadano consumen la API; el historial de depósitos y puntos también consulta el backend. La gestión administrativa de EcoPuntos, materiales y compartimentos está conectada. Los indicadores de dashboard aún son demostrativos; beneficios/redenciones y los flujos de alertas y recolecciones de ADMIN/RECYCLER están pendientes de conexión en el frontend.
