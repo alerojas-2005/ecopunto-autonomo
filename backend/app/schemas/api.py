@@ -45,6 +45,7 @@ class UserAdminCreate(RequestModel):
     full_name: ShortName
     password: Annotated[str, Field(min_length=12, max_length=128)]
     role: UserRole
+    university_id: UUID | None = None
 
 
 class TokenResponse(BaseModel):

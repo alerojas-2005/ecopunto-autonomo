@@ -14,20 +14,12 @@ from app.schemas.api import BootstrapAdminRequest, LoginRequest, RegisterRequest
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
 
-@router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> User:
-    email = str(payload.email).lower()
-    if by_email(db, email):
-        raise HTTPException(status_code=409, detail="Ya existe una cuenta con ese correo")
-    user = User(email=email, full_name=payload.full_name, password_hash=hash_password(payload.password), role=UserRole.CITIZEN)
-    db.add(user)
-    try:
-        db.commit()
-        db.refresh(user)
-    except Exception:
-        db.rollback()
-        raise
-    return user
+@router.post("/register", status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+def register(payload: RegisterRequest) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="El registro público está temporalmente deshabilitado mientras se implementa el registro institucional.",
+    )
 
 
 @router.post("/login", response_model=TokenResponse)

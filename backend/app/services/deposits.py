@@ -33,6 +33,8 @@ def register_deposit(db: Session, citizen: User, payload: DepositCreate) -> Depo
         raise HTTPException(status_code=404, detail="EcoPunto, compartimento o material no encontrado")
     if not ecopoint.active:
         raise HTTPException(status_code=409, detail="No se permiten depósitos en un EcoPunto inactivo")
+    if citizen.university_id is None or ecopoint.university_id != citizen.university_id:
+        raise HTTPException(status_code=404, detail="EcoPunto no encontrado")
     if not compartment.active or not material.active:
         raise HTTPException(status_code=409, detail="El compartimento o material está inactivo")
     if compartment.ecopoint_id != ecopoint.id or compartment.material_id != material.id:

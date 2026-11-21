@@ -13,6 +13,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     text,
 )
@@ -46,6 +47,7 @@ class UTCDateTime(TypeDecorator[datetime]):
 class UserRole(str, Enum):
     CITIZEN = "CITIZEN"
     ADMIN = "ADMIN"
+    UNIVERSITY_ADMIN = "UNIVERSITY_ADMIN"
     RECYCLER = "RECYCLER"
 
 
@@ -67,16 +69,45 @@ class CollectionStatus(str, Enum):
     COMPLETED = "COMPLETED"
 
 
+class University(Base):
+    __tablename__ = "universities"
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    name: Mapped[str] = mapped_column(String(160))
+    slug: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    city: Mapped[str] = mapped_column(String(120))
+    campus_name: Mapped[str] = mapped_column(String(160))
+    address: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    public_registration_enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
+
+    users: Mapped[list["User"]] = relationship(back_populates="university")
+    ecopoints: Mapped[list["EcoPoint"]] = relationship(back_populates="university")
+
+
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "(role = 'ADMIN' AND university_id IS NULL) OR "
+            "(role IN ('CITIZEN', 'RECYCLER', 'UNIVERSITY_ADMIN') AND university_id IS NOT NULL)",
+            name="ck_user_role_university",
+        ),
+        UniqueConstraint("id", "university_id", name="uq_user_id_university"),
+    )
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(SAEnum(UserRole, native_enum=False, length=16), default=UserRole.CITIZEN, index=True)
+    university_id: Mapped[UUID | None] = mapped_column(ForeignKey("universities.id", ondelete="RESTRICT"), nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
 
+    university: Mapped["University | None"] = relationship(back_populates="users")
     deposits: Mapped[list["Deposit"]] = relationship(back_populates="citizen")
     transactions: Mapped[list["PointTransaction"]] = relationship(back_populates="user")
     collections: Mapped[list["Collection"]] = relationship(back_populates="recycler", foreign_keys="Collection.recycler_id")
@@ -84,13 +115,19 @@ class User(Base):
 
 class EcoPoint(Base):
     __tablename__ = "ecopoints"
+    __table_args__ = (
+        UniqueConstraint("university_id", "code", name="uq_ecopoint_university_code"),
+        UniqueConstraint("id", "university_id", name="uq_ecopoint_id_university"),
+    )
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
-    code: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    code: Mapped[str] = mapped_column(String(40))
+    university_id: Mapped[UUID] = mapped_column(ForeignKey("universities.id", ondelete="RESTRICT"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(120))
     address: Mapped[str] = mapped_column(String(240))
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
 
+    university: Mapped[University] = relationship(back_populates="ecopoints")
     compartments: Mapped[list["Compartment"]] = relationship(back_populates="ecopoint")
     deposits: Mapped[list["Deposit"]] = relationship(back_populates="ecopoint")
     collections: Mapped[list["Collection"]] = relationship(back_populates="ecopoint")

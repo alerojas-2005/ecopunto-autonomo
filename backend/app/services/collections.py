@@ -17,6 +17,8 @@ def register_collection(db: Session, recycler: User, payload: CollectionCreate) 
         raise HTTPException(status_code=404, detail="EcoPunto o compartimento no encontrado")
     if compartment.ecopoint_id != ecopoint.id:
         raise HTTPException(status_code=400, detail="El compartimento no pertenece al EcoPunto indicado")
+    if recycler.university_id is None or ecopoint.university_id != recycler.university_id:
+        raise HTTPException(status_code=404, detail="EcoPunto no encontrado")
     amount = Decimal(payload.weight_kg)
     if amount > Decimal(compartment.current_kg):
         raise HTTPException(status_code=409, detail="El peso recolectado supera el peso registrado en el compartimento")

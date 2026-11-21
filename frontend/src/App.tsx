@@ -7,6 +7,8 @@ import type { UserRole } from './api/types'
 import { DepositForm } from './components/DepositForm'
 import { DepositHistory } from './components/DepositHistory'
 import { AdminCatalog } from './components/AdminCatalog'
+import { CitizenDashboard } from './components/CitizenDashboard'
+import { CitizenPoints } from './components/CitizenPoints'
 import './auth/Session.css'
 import './App.css'
 
@@ -14,7 +16,7 @@ type Role = UserRole
 type View = 'Inicio' | 'Registrar depósito' | 'Mis EcoPuntos' | 'Historial' | 'Beneficios' | 'Gestión de EcoPuntos' | 'Alertas y recolecciones'
 
 const citizenNav: { label: View; icon: IconName }[] = [
-  { label: 'Inicio', icon: 'home' }, { label: 'Registrar depósito', icon: 'drop' }, { label: 'Mis EcoPuntos', icon: 'points' }, { label: 'Historial', icon: 'history' }, { label: 'Beneficios', icon: 'gift' },
+  { label: 'Inicio', icon: 'home' }, { label: 'Registrar depósito', icon: 'drop' }, { label: 'Mis EcoPuntos', icon: 'points' }, { label: 'Historial', icon: 'history' },
 ]
 const adminNav: { label: View; icon: IconName }[] = [
   { label: 'Inicio', icon: 'home' }, { label: 'Gestión de EcoPuntos', icon: 'bins' }, { label: 'Alertas y recolecciones', icon: 'bell' },
@@ -23,11 +25,6 @@ const recyclerNav: { label: View; icon: IconName }[] = [
   { label: 'Inicio', icon: 'home' }, { label: 'Alertas y recolecciones', icon: 'bell' },
 ]
 
-const activities = [
-  { title: 'Botella PET', meta: 'Hoy · EcoPunto Parque de los Novios', points: '+45 pts', weight: '0.45 kg', color: 'mint' },
-  { title: 'Lata de aluminio', meta: 'Ayer · EcoPunto Centro', points: '+30 pts', weight: '0.30 kg', color: 'amber' },
-  { title: 'Papel y cartón', meta: '12 nov · EcoPunto Universidad', points: '+60 pts', weight: '1.20 kg', color: 'blue' },
-]
 
 function App() {
   const { session, logout } = useAuth()
@@ -58,9 +55,9 @@ function App() {
     </aside>
 
     <main className="main-area">
-      <header className="topbar"><div className="topbar-left"><button className="mobile-menu" aria-label="Abrir menú" onClick={() => setMenuOpen(!menuOpen)}><Icon name={menuOpen ? 'close' : 'menu'} /></button><div className="breadcrumbs">EcoPunto <Icon name="chevron" size={14} /><strong>{view}</strong></div></div><div className="topbar-actions"><span className="demo-tag"><span /> Datos de demostración</span><div className="profile"><div className="avatar">{initials}</div><div className="profile-copy"><strong>{session.user.full_name}</strong><span>{roleLabel(role)}</span></div></div><button className="logout-button" onClick={handleLogout}>Cerrar sesión <Icon name="close" size={15}/></button></div></header>
+      <header className="topbar"><div className="topbar-left"><button className="mobile-menu" aria-label="Abrir menú" onClick={() => setMenuOpen(!menuOpen)}><Icon name={menuOpen ? 'close' : 'menu'} /></button><div className="breadcrumbs">EcoPunto <Icon name="chevron" size={14} /><strong>{view}</strong></div></div><div className="topbar-actions">{role !== 'CITIZEN' && <span className="demo-tag"><span /> Datos de demostración</span>}<div className="profile"><div className="avatar">{initials}</div><div className="profile-copy"><strong>{session.user.full_name}</strong><span>{roleLabel(role)}</span></div></div><button className="logout-button" onClick={handleLogout}>Cerrar sesión <Icon name="close" size={15}/></button></div></header>
       <div className="page-content">
-        <div className="demo-banner"><Icon name="info" size={17}/><span>{view === 'Registrar depósito' ? 'Los catálogos, el registro del depósito, el cálculo de puntos y las actualizaciones se gestionan desde la API.' : view === 'Gestión de EcoPuntos' ? 'EcoPuntos, materiales y compartimentos se consultan y gestionan desde la API.' : 'Las métricas y listas de esta vista siguen siendo datos de demostración y todavía no se consultan desde la API.'}</span></div>
+        <div className="demo-banner"><Icon name="info" size={17}/><span>{role === 'CITIZEN' ? (view === 'Beneficios' ? 'El catálogo de beneficios y las redenciones todavía no están conectados al backend.' : 'La información de tu cuenta en esta pantalla se consulta desde EcoPunto.') : view === 'Registrar depósito' ? 'Los catálogos, el registro del depósito, el cálculo de puntos y las actualizaciones se gestionan desde la API.' : view === 'Gestión de EcoPuntos' ? 'EcoPuntos, materiales y compartimentos se consultan y gestionan desde la API.' : 'Las métricas y listas de esta vista siguen siendo datos de demostración y todavía no se consultan desde la API.'}</span></div>
         <div className="page-heading"><div><span className="eyebrow">{role === 'CITIZEN' ? 'TU IMPACTO, DÍA A DÍA' : role === 'ADMIN' ? 'CENTRO DE OPERACIONES' : 'PANEL DE RECICLADOR'}</span><h1>{view === 'Inicio' ? (role === 'CITIZEN' ? `¡Hola, ${firstName}!` : `Hola, ${firstName}`) : view}</h1><p>{pageDescription(view, role)}</p></div><div className="role-badge"><span className="online-dot"/>{roleLabel(role)}</div></div>
 
         {view === 'Inicio' && (role === 'CITIZEN' ? <CitizenDashboard onNavigate={setView} /> : role === 'ADMIN' ? <AdminDashboard onNavigate={setView} /> : <RecyclerWelcome fullName={session.user.full_name} />)}
@@ -77,17 +74,8 @@ function roleLabel(role: Role) {
 
 function pageDescription(view: View, role: Role) {
   if (view === 'Inicio') return role === 'CITIZEN' ? 'Cada material que separas ayuda a construir una ciudad más sostenible.' : role === 'ADMIN' ? 'Una mirada clara al estado de la red de puntos de reciclaje.' : 'Información de tu sesión y acceso a las herramientas de recolección.'
-  const descriptions: Record<View, string> = { Inicio: '', 'Registrar depósito': 'Prepara tu próximo aporte al ciclo de aprovechamiento.', 'Mis EcoPuntos': 'Consulta tu saldo y descubre cuánto impacto has generado.', Historial: 'Un registro de tus aportes a la economía circular.', Beneficios: 'Explora formas de darle más valor a tus EcoPuntos.', 'Gestión de EcoPuntos': 'Monitorea capacidad, ubicación y estado de cada punto.', 'Alertas y recolecciones': 'Novedades operativas y próximas rutas de recolección.' }
+  const descriptions: Record<View, string> = { Inicio: '', 'Registrar depósito': 'Prepara tu próximo aporte al ciclo de aprovechamiento.', 'Mis EcoPuntos': 'Consulta tu saldo y tus transacciones registradas.', Historial: 'Un registro de tus aportes a la economía circular.', Beneficios: 'Esta funcionalidad todavía no está disponible.', 'Gestión de EcoPuntos': 'Monitorea capacidad, ubicación y estado de cada punto.', 'Alertas y recolecciones': 'Novedades operativas y próximas rutas de recolección.' }
   return descriptions[view]
-}
-
-function CitizenDashboard({ onNavigate }: { onNavigate: (view: View) => void }) {
-  return <>
-    <section className="citizen-hero"><div className="hero-copy"><div className="hero-kicker"><Icon name="leaf" size={15} /> TU APORTE HACE LA DIFERENCIA</div><h2>Un planeta más limpio<br />empieza contigo.</h2><p>Ya estás transformando hábitos en un impacto positivo. ¡Sigue así!</p><Button onClick={() => onNavigate('Registrar depósito')}><Icon name="plus" size={18} /> Registrar un depósito</Button></div><div className="hero-art" aria-hidden="true"><div className="sun-disc"/><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="hero-plant plant-left"><i/><i/><i/></div><div className="hero-plant plant-right"><i/><i/><i/><i/></div><div className="hero-pot"/><div className="hero-stat"><div className="hero-stat-icon"><Icon name="trend" size={17}/></div><span>Tu impacto este mes</span><strong>+18% <small>vs. mes anterior</small></strong></div></div><div className="hero-watermark"><Icon name="leaf" size={138}/></div></section>
-    <div className="stats-grid citizen-stats"><StatCard label="EcoPuntos disponibles" value="1,250" detail="Puntos listos para usar" icon="points"/><StatCard label="Depósitos realizados" value="24" detail="¡Vas por muy buen camino!" icon="recycle" tone="mint"/><StatCard label="Peso recuperado" value="18.6 kg" detail="Materiales que vuelven al ciclo" icon="weight" tone="amber"/></div>
-    <section className="panel activity-panel"><SectionHeading eyebrow="TU CONTRIBUCIÓN" title="Actividad reciente"><button className="text-link" onClick={() => onNavigate('Historial')}>Ver historial <Icon name="arrow" size={16}/></button></SectionHeading><div className="activity-list">{activities.map((item, index) => <div className="activity-row" key={item.title}><div className={`activity-symbol symbol-${item.color}`}><Icon name={index === 0 ? 'drop' : index === 1 ? 'recycle' : 'leaf'} size={19}/></div><div className="activity-name"><strong>{item.title}</strong><span>{item.meta}</span></div><div className="activity-weight">{item.weight}</div><div className="activity-points">{item.points}</div><Icon className="activity-chevron" name="chevron" size={17}/></div>)}</div></section>
-    <section className="lower-grid"><div className="panel tip-panel"><div className="tip-icon"><Icon name="leaf" size={21}/></div><div><span className="eyebrow">CONSEJO ECO</span><h3>¿Sabías que...?</h3><p>Una botella de plástico puede tardar hasta 450 años en degradarse. Al reciclarla, ayudas a convertirla en un nuevo recurso.</p></div><div className="tip-decoration"><Icon name="recycle" size={56}/></div></div><div className="panel progress-panel"><SectionHeading eyebrow="META MENSUAL" title="Vas con toda"/><div className="goal-row"><span>Meta: 30 depósitos</span><strong>24 <small>/ 30</small></strong></div><ProgressBar value={80}/><span className="goal-caption">¡Solo 6 depósitos más para alcanzar tu meta!</span></div></section>
-  </>
 }
 
 function AdminDashboard({ onNavigate }: { onNavigate: (view: View) => void }) {
@@ -112,7 +100,8 @@ function RecyclerWelcome({ fullName }: { fullName: string }) {
 
 function Subpage({ view, role, onNavigate }: { view: View; role: Role; onNavigate: (view: View) => void }) {
   if (view === 'Registrar depósito') return <DepositForm />
-  if (view === 'Mis EcoPuntos' || view === 'Beneficios') return <div className="stats-grid"><StatCard label="Saldo disponible" value="1,250 pts" detail="Equivalente a $12.500 en beneficios" icon="points"/><StatCard label="Puntos acumulados" value="2,840 pts" detail="Desde tu primer depósito" icon="trend" tone="mint"/><StatCard label="Beneficios canjeados" value="3" detail="Gracias por reciclar" icon="gift" tone="amber"/><section className="panel placeholder-panel"><div className="placeholder-icon"><Icon name={view === 'Beneficios' ? 'gift' : 'points'} size={24}/></div><h3>{view === 'Beneficios' ? 'Beneficios próximamente' : 'Tus EcoPuntos en un solo lugar'}</h3><p>{view === 'Beneficios' ? 'Pronto podrás explorar y canjear recompensas de comercios aliados. Este catálogo es de demostración.' : 'Tu saldo es de demostración y todavía no está conectado a un sistema de recompensas.'}</p><Button variant="secondary" onClick={() => onNavigate(view === 'Beneficios' ? 'Mis EcoPuntos' : 'Beneficios')}>{view === 'Beneficios' ? 'Ver mi saldo' : 'Explorar beneficios'} <Icon name="arrow" size={16}/></Button></section></div>
+  if (view === 'Mis EcoPuntos') return <CitizenPoints />
+  if (view === 'Beneficios') return <section className="panel placeholder-panel"><div className="placeholder-icon"><Icon name="gift" size={24}/></div><h3>Beneficios no disponibles</h3><p>El catálogo de beneficios y las redenciones todavía no están conectados al backend.</p></section>
   if (view === 'Historial') return <DepositHistory />
   if (view === 'Gestión de EcoPuntos') return <AdminCatalog />
   return <section className="panel bins-panel"><SectionHeading eyebrow="CENTRO DE OPERACIONES" title="Alertas y recolecciones"/><div className="route-banner"><div className="route-icon"><Icon name="truck" size={23}/></div><div><strong>Próxima ruta de recolección</strong><span>Ruta norte · Hoy, 2:30 p. m. · 3 puntos programados</span></div><Button variant="secondary">Ver ruta <Icon name="arrow" size={16}/></Button></div>{['EcoPunto Centro · 91% de llenado · Prioridad alta', 'EcoPunto Parque Central · 82% de llenado · Programar hoy', 'Recolección de papel · Universidad · Programada para mañana'].map((text, index) => <div className="alert-row page-alert" key={text}><div className={`alert-indicator ${index === 0 ? 'alert-red' : 'alert-amber'}`}><Icon name={index === 2 ? 'calendar' : 'bell'} size={19}/></div><div className="alert-copy"><strong>{text.split(' · ')[0]}</strong><span>{text.split(' · ').slice(1).join(' · ')}</span></div><span className={`status-pill ${index === 0 ? 'status-red' : 'status-amber'}`}>{index === 0 ? 'Crítico' : 'Pendiente'}</span><Button variant="ghost" onClick={() => onNavigate(role === 'ADMIN' ? 'Gestión de EcoPuntos' : 'Inicio')}>Ver <Icon name="arrow" size={15}/></Button></div>)}</section>
