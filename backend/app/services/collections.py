@@ -11,14 +11,20 @@ from app.schemas.api import CollectionCreate
 
 
 def register_collection(db: Session, recycler: User, payload: CollectionCreate) -> Collection:
-    ecopoint = db.get(EcoPoint, payload.ecopoint_id)
-    compartment = db.get(Compartment, payload.compartment_id)
-    if ecopoint is None or compartment is None:
-        raise HTTPException(status_code=404, detail="EcoPunto o compartimento no encontrado")
-    if compartment.ecopoint_id != ecopoint.id:
-        raise HTTPException(status_code=400, detail="El compartimento no pertenece al EcoPunto indicado")
-    if recycler.university_id is None or ecopoint.university_id != recycler.university_id:
+    if recycler.university_id is None:
+        raise HTTPException(status_code=403, detail="El reciclador no tiene universidad asignada")
+    ecopoint = db.scalar(select(EcoPoint).where(
+        EcoPoint.id == payload.ecopoint_id,
+        EcoPoint.university_id == recycler.university_id,
+    ))
+    if ecopoint is None:
         raise HTTPException(status_code=404, detail="EcoPunto no encontrado")
+    compartment = db.scalar(select(Compartment).where(
+        Compartment.id == payload.compartment_id,
+        Compartment.ecopoint_id == ecopoint.id,
+    ))
+    if compartment is None:
+        raise HTTPException(status_code=404, detail="Compartimento no encontrado")
     amount = Decimal(payload.weight_kg)
     if amount > Decimal(compartment.current_kg):
         raise HTTPException(status_code=409, detail="El peso recolectado supera el peso registrado en el compartimento")
