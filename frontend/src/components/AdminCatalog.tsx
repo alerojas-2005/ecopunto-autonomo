@@ -11,18 +11,19 @@ import {
   updateEcoPoint,
   updateMaterial,
 } from '../api/catalog'
-import type { CompartmentSummary, EcoPointSummary, MaterialSummary } from '../api/types'
+import { getUniversities } from '../api/universities'
+import type { CompartmentSummary, EcoPointSummary, MaterialSummary, UniversitySummary } from '../api/types'
 import { useAuth } from '../auth/useAuth'
 import { Button } from './UI'
 import { Icon } from './Icon'
 import './AdminCatalog.css'
 
 type AdminTab = 'ecopoints' | 'materials'
-type EcoPointDraft = { code: string; name: string; address: string; active: boolean }
+type EcoPointDraft = { university_id: string; code: string; name: string; address: string; active: boolean }
 type MaterialDraft = { name: string; description: string; pointsPerGram: string; active: boolean }
 type CompartmentDraft = { materialId: string; label: string; capacityKg: string; threshold: string; active: boolean }
 
-const emptyEcoPoint: EcoPointDraft = { code: '', name: '', address: '', active: true }
+const emptyEcoPoint: EcoPointDraft = { university_id: '', code: '', name: '', address: '', active: true }
 const emptyMaterial: MaterialDraft = { name: '', description: '', pointsPerGram: '', active: true }
 const emptyCompartment: CompartmentDraft = { materialId: '', label: '', capacityKg: '', threshold: '80', active: true }
 
@@ -50,6 +51,7 @@ export function AdminCatalog() {
   const [tab, setTab] = useState<AdminTab>('ecopoints')
   const [ecopoints, setEcopoints] = useState<EcoPointSummary[]>([])
   const [materials, setMaterials] = useState<MaterialSummary[]>([])
+  const [universities, setUniversities] = useState<UniversitySummary[]>([])
   const [compartments, setCompartments] = useState<CompartmentSummary[]>([])
   const [selectedEcopointId, setSelectedEcopointId] = useState('')
   const [loading, setLoading] = useState(true)
@@ -74,10 +76,11 @@ export function AdminCatalog() {
   useEffect(() => {
     if (!token) return
     const controller = new AbortController()
-    void Promise.all([getEcoPoints(token, controller.signal), getMaterials(token, controller.signal)])
-      .then(([pointItems, materialItems]) => {
+    void Promise.all([getEcoPoints(token, controller.signal), getMaterials(token, controller.signal), getUniversities(token, controller.signal)])
+      .then(([pointItems, materialItems, universityItems]) => {
         setEcopoints(pointItems)
         setMaterials(materialItems)
+        setUniversities(universityItems.filter(item => item.active))
       })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) setError(apiErrorMessage(reason, logout))
@@ -134,7 +137,7 @@ export function AdminCatalog() {
 
   const openEcoPointEdit = (item: EcoPointSummary) => {
     setEditingEcoPointId(item.id)
-    setEcoPointDraft({ code: item.code, name: item.name, address: item.address, active: item.active })
+    setEcoPointDraft({ university_id: '', code: item.code, name: item.name, address: item.address, active: item.active })
     setEcoPointFormOpen(true)
     setNotice('')
     setError('')
@@ -147,8 +150,9 @@ export function AdminCatalog() {
     setError('')
     setNotice('')
     try {
+      const ecoPointPatch = { code: ecoPointDraft.code, name: ecoPointDraft.name, address: ecoPointDraft.address, active: ecoPointDraft.active }
       const saved = editingEcoPointId
-        ? await updateEcoPoint(editingEcoPointId, ecoPointDraft, token)
+        ? await updateEcoPoint(editingEcoPointId, ecoPointPatch, token)
         : await createEcoPoint(ecoPointDraft, token)
       setSelectedEcopointId(saved.id)
       setEcoPointFormOpen(false)
@@ -264,7 +268,10 @@ export function AdminCatalog() {
         <div className="admin-panel-heading"><div><h3>EcoPuntos</h3><p>{ecopoints.length} registros del backend</p></div><Button type="button" onClick={openNewEcoPoint}><Icon name="plus" size={16}/> Nuevo EcoPunto</Button></div>
         {ecoPointFormOpen && <form className="admin-form" onSubmit={submitEcoPoint}>
           <div className="admin-form-heading"><strong>{editingEcoPointId ? 'Editar EcoPunto' : 'Crear EcoPunto'}</strong><button type="button" onClick={() => setEcoPointFormOpen(false)}>Cancelar</button></div>
-          <div className="admin-form-grid"><label>Código<input value={ecoPointDraft.code} minLength={2} maxLength={40} onChange={e => setEcoPointDraft({ ...ecoPointDraft, code: e.target.value })} required/></label><label>Nombre<input value={ecoPointDraft.name} maxLength={120} onChange={e => setEcoPointDraft({ ...ecoPointDraft, name: e.target.value })} required/></label><label className="wide">Ubicación / dirección<input value={ecoPointDraft.address} maxLength={240} onChange={e => setEcoPointDraft({ ...ecoPointDraft, address: e.target.value })} required/></label><label className="admin-checkbox"><input type="checkbox" checked={ecoPointDraft.active} onChange={e => setEcoPointDraft({ ...ecoPointDraft, active: e.target.checked })}/> Activo</label></div>
+          <div className="admin-form-grid">
+            {!editingEcoPointId && <label>Universidad<select value={ecoPointDraft.university_id} onChange={e => setEcoPointDraft({ ...ecoPointDraft, university_id: e.target.value })} required><option value="">Selecciona una universidad activa</option>{universities.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+            <label>Código<input value={ecoPointDraft.code} minLength={2} maxLength={40} onChange={e => setEcoPointDraft({ ...ecoPointDraft, code: e.target.value })} required/></label><label>Nombre<input value={ecoPointDraft.name} maxLength={120} onChange={e => setEcoPointDraft({ ...ecoPointDraft, name: e.target.value })} required/></label><label className="wide">Ubicación / dirección<input value={ecoPointDraft.address} maxLength={240} onChange={e => setEcoPointDraft({ ...ecoPointDraft, address: e.target.value })} required/></label><label className="admin-checkbox"><input type="checkbox" checked={ecoPointDraft.active} onChange={e => setEcoPointDraft({ ...ecoPointDraft, active: e.target.checked })}/> Activo</label>
+          </div>
           <Button type="submit" disabled={saving}>{saving ? 'Guardando…' : editingEcoPointId ? 'Guardar cambios' : 'Crear EcoPunto'}</Button>
         </form>}
         {ecopoints.length === 0 && !ecoPointFormOpen ? <p className="admin-catalog-state">No hay EcoPuntos registrados.</p> : <div className="admin-table-wrap"><table className="admin-catalog-table"><thead><tr><th>EcoPunto</th><th>Código</th><th>Ubicación</th><th>Estado</th><th/></tr></thead><tbody>{ecopoints.map(item => <tr key={item.id}><td><strong>{item.name}</strong></td><td>{item.code}</td><td>{item.address}</td><td><span className={`admin-state-pill ${item.active ? 'active' : ''}`}>{item.active ? 'Activo' : 'Inactivo'}</span></td><td><button className="admin-row-action" type="button" onClick={() => openEcoPointEdit(item)}>Editar</button></td></tr>)}</tbody></table></div>}
