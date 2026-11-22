@@ -7,6 +7,7 @@ from sqlalchemy.engine import Connection, Engine
 
 _REBUILT_TABLES = frozenset({"compartments", "deposits"})
 _DEPENDENCY_PATTERN = re.compile(r"\b(?:compartments|deposits)\b", re.IGNORECASE)
+_USER_REFERENCE_PATTERN = re.compile(r"\busers\b", re.IGNORECASE)
 
 
 def _quote_identifier(identifier: str) -> str:
@@ -90,6 +91,27 @@ def _trigger_definitions(connection: Connection) -> dict[str, tuple[str, str]]:
             "WHERE type='trigger' AND sql IS NOT NULL ORDER BY name"
         )
     }
+
+
+def _triggers_referencing_users(connection: Connection) -> dict[str, tuple[str, str]]:
+    return {
+        name: (table, sql)
+        for name, (table, sql) in _trigger_definitions(connection).items()
+        if table.lower() == "users" or _USER_REFERENCE_PATTERN.search(sql)
+    }
+
+
+def _foreign_keys_referencing_table(
+    connection: Connection, target_table: str
+) -> tuple[tuple[object, ...], ...]:
+    references = []
+    for table in _table_names(connection):
+        for row in connection.exec_driver_sql(
+            f"PRAGMA foreign_key_list({_quote_identifier(table)})"
+        ):
+            if str(row[2]).lower() == target_table.lower():
+                references.append((table, *tuple(row[1:])))
+    return tuple(sorted(references, key=repr))
 
 
 def _table_counts(connection: Connection, tables: set[str]) -> dict[str, int]:
@@ -305,19 +327,50 @@ def _upgrade_recycler_module_columns(connection: Connection) -> None:
             connection.exec_driver_sql("ALTER TABLE recycler_profiles ADD COLUMN document_number VARCHAR(40)")
         if "status" not in profile_columns:
             connection.exec_driver_sql("ALTER TABLE recycler_profiles ADD COLUMN status VARCHAR(12) NOT NULL DEFAULT 'ACTIVE'")
-            connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_recycler_profiles_status ON recycler_profiles(status)")
+        connection.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_recycler_profiles_organization_id "
+            "ON recycler_profiles(organization_id)"
+        )
+        connection.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_recycler_profiles_status ON recycler_profiles(status)"
+        )
     if "recycler_assignments" in tables:
         assignment_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info("recycler_assignments")')}
         if "organization_id" not in assignment_columns:
             connection.exec_driver_sql("ALTER TABLE recycler_assignments ADD COLUMN organization_id CHAR(32) REFERENCES organizations(id) ON DELETE RESTRICT")
         if "origin" not in assignment_columns:
             connection.exec_driver_sql("ALTER TABLE recycler_assignments ADD COLUMN origin VARCHAR(12) NOT NULL DEFAULT 'DIRECT'")
-            connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_recycler_assignments_origin ON recycler_assignments(origin)")
+        assignment_foreign_keys = connection.exec_driver_sql(
+            'PRAGMA foreign_key_list("recycler_assignments")'
+        ).all()
+        if not any(row[3] == "organization_id" and row[2] == "organizations" and row[4] == "id"
+                   for row in assignment_foreign_keys):
+            raise RuntimeError(
+                "recycler_assignments.organization_id existe sin la FK esperada; revisión manual requerida"
+            )
+        connection.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_recycler_assignments_organization_id "
+            "ON recycler_assignments(organization_id)"
+        )
+        connection.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_recycler_assignments_origin "
+            "ON recycler_assignments(origin)"
+        )
     if "collections" in tables:
         collection_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info("collections")')}
         if "material_id" not in collection_columns:
             connection.exec_driver_sql("ALTER TABLE collections ADD COLUMN material_id CHAR(32) REFERENCES materials(id) ON DELETE RESTRICT")
-            connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_collections_material_id ON collections(material_id)")
+        collection_foreign_keys = connection.exec_driver_sql(
+            'PRAGMA foreign_key_list("collections")'
+        ).all()
+        if not any(row[3] == "material_id" and row[2] == "materials" and row[4] == "id"
+                   for row in collection_foreign_keys):
+            raise RuntimeError(
+                "collections.material_id existe sin la FK esperada; revisión manual requerida"
+            )
+        connection.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_collections_material_id ON collections(material_id)"
+        )
 
 
 def upgrade_recycler_university_optional(engine: Engine) -> bool:
@@ -343,39 +396,71 @@ def upgrade_recycler_university_optional(engine: Engine) -> bool:
             if original is None:
                 connection.exec_driver_sql("COMMIT")
                 return False
-            old_clause = "(role IN ('CITIZEN', 'RECYCLER') AND university_id IS NOT NULL)"
-            new_clause = "(role = 'CITIZEN' AND university_id IS NOT NULL) OR (role = 'RECYCLER')"
-            if old_clause not in original:
-                if "role = 'RECYCLER'" in original:
+            old_to_new_clauses = (
+                (
+                    "(role IN ('CITIZEN', 'RECYCLER') AND university_id IS NOT NULL)",
+                    "(role = 'CITIZEN' AND university_id IS NOT NULL) OR (role = 'RECYCLER')",
+                ),
+                (
+                    "(role IN ('CITIZEN', 'RECYCLER', 'UNIVERSITY_ADMIN') AND university_id IS NOT NULL)",
+                    "(role IN ('CITIZEN', 'UNIVERSITY_ADMIN') AND university_id IS NOT NULL) OR (role = 'RECYCLER')",
+                ),
+            )
+            matched_clause = next(
+                ((old, new) for old, new in old_to_new_clauses if old in original), None
+            )
+            if matched_clause is None:
+                # Current schemas may omit the legacy role or retain UNIVERSITY_ADMIN;
+                # in either form RECYCLER must be independently nullable.
+                current_recycler_clause = "(role = 'RECYCLER')"
+                if current_recycler_clause in original:
                     _upgrade_recycler_module_columns(connection)
                     connection.exec_driver_sql("COMMIT")
                     return False
                 raise RuntimeError("Restricción de users desconocida; revisión manual requerida")
+            old_clause, new_clause = matched_clause
             columns = connection.exec_driver_sql('PRAGMA table_info("users")').all()
             names = [str(row[1]) for row in columns]
             indexes = connection.exec_driver_sql(
                 "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='users' AND sql IS NOT NULL"
             ).scalars().all()
-            triggers = connection.exec_driver_sql(
-                "SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name='users' AND sql IS NOT NULL"
-            ).scalars().all()
+            dependent_triggers = _triggers_referencing_users(connection)
+            foreign_keys_to_users_before = _foreign_keys_referencing_table(connection, "users")
             before = tuple(tuple(row) for row in connection.exec_driver_sql("SELECT * FROM users ORDER BY id"))
             replacement = original.replace('CREATE TABLE users', 'CREATE TABLE users__new', 1).replace(old_clause, new_clause, 1)
             if replacement == original:
                 replacement = original.replace('CREATE TABLE "users"', 'CREATE TABLE "users__new"', 1).replace(old_clause, new_clause, 1)
             if replacement == original:
                 raise RuntimeError("No se pudo preparar la tabla users; revisión manual requerida")
+
+            # SQLite reparses triggers attached to other tables when the replacement
+            # table is renamed. Temporarily drop every trigger that references users
+            # (including triggers attached to users); the surrounding transaction
+            # restores these DDL changes automatically if anything fails.
+            for trigger_name in dependent_triggers:
+                connection.exec_driver_sql(
+                    f"DROP TRIGGER {_quote_identifier(trigger_name)}"
+                )
+
             connection.exec_driver_sql(replacement)
             quoted = ", ".join(_quote_identifier(name) for name in names)
             connection.exec_driver_sql(f"INSERT INTO users__new ({quoted}) SELECT {quoted} FROM users")
             connection.exec_driver_sql("DROP TABLE users")
             connection.exec_driver_sql("ALTER TABLE users__new RENAME TO users")
-            for statement in indexes + triggers:
+            for statement in indexes:
                 connection.exec_driver_sql(statement)
             _upgrade_recycler_module_columns(connection)
+            for _trigger_name, (_table_name, definition) in dependent_triggers.items():
+                connection.exec_driver_sql(definition)
             after = tuple(tuple(row) for row in connection.exec_driver_sql("SELECT * FROM users ORDER BY id"))
             if before != after:
                 raise RuntimeError("La migración modificó filas de users")
+            triggers_after = _triggers_referencing_users(connection)
+            if triggers_after != dependent_triggers:
+                raise RuntimeError("La migración no restauró todas las definiciones de triggers que usan users")
+            foreign_keys_to_users_after = _foreign_keys_referencing_table(connection, "users")
+            if foreign_keys_to_users_after != foreign_keys_to_users_before:
+                raise RuntimeError("La migración modificó claves foráneas que apuntan a users")
             violations = connection.exec_driver_sql("PRAGMA foreign_key_check").all()
             if violations:
                 raise RuntimeError(f"La migración dejó claves foráneas inválidas: {violations[:5]}")

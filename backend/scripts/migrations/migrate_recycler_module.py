@@ -9,7 +9,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from app.core.sqlite_migrations import upgrade_recycler_university_optional
@@ -20,6 +20,27 @@ def digest(path: Path) -> str:
     with path.open("rb") as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def validate_sqlite_file(path: Path) -> None:
+    uri = f"{path.resolve().as_uri()}?mode=ro"
+    with sqlite3.connect(uri, uri=True) as connection:
+        integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+    if integrity != "ok":
+        raise RuntimeError(f"{path} no superó integrity_check: {integrity}")
+    if violations:
+        raise RuntimeError(f"{path} tiene referencias inválidas: {violations[:5]}")
+
+
+def logical_digest(path: Path) -> str:
+    uri = f"{path.resolve().as_uri()}?mode=ro"
+    hasher = hashlib.sha256()
+    with sqlite3.connect(uri, uri=True) as connection:
+        for statement in connection.iterdump():
+            hasher.update(statement.encode("utf-8"))
+            hasher.update(b"\n")
     return hasher.hexdigest()
 
 
@@ -34,13 +55,22 @@ def main() -> None:
         parser.error("--database debe ser un archivo existente")
     if database == backup or backup.exists():
         parser.error("--backup debe ser una ruta distinta que todavía no exista")
+    validate_sqlite_file(database)
     backup.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(database) as source, sqlite3.connect(backup) as target:
         source.backup(target)
-        if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-            parser.error("El backup no superó integrity_check")
+    validate_sqlite_file(backup)
+    if logical_digest(database) != logical_digest(backup):
+        raise RuntimeError("El backup no coincide lógicamente con la base previa a la migración")
     before_hash = digest(backup)
     engine = create_engine(f"sqlite:///{database.as_posix()}")
+
+    @event.listens_for(engine, "connect")
+    def enable_sqlite_foreign_keys(connection, _record):
+        cursor = connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     try:
         changed = upgrade_recycler_university_optional(engine)
         with engine.connect() as connection:
