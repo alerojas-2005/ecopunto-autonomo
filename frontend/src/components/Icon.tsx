@@ -1,6 +1,6 @@
 import type { ReactNode, SVGProps } from 'react'
 
-export type IconName = 'home' | 'drop' | 'points' | 'history' | 'gift' | 'bins' | 'bell' | 'leaf' | 'menu' | 'close' | 'arrow' | 'weight' | 'recycle' | 'clock' | 'chevron' | 'plus' | 'location' | 'camera' | 'check' | 'calendar' | 'truck' | 'trend' | 'info'
+export type IconName = 'home' | 'drop' | 'points' | 'history' | 'gift' | 'bins' | 'bell' | 'leaf' | 'menu' | 'close' | 'arrow' | 'weight' | 'recycle' | 'clock' | 'chevron' | 'plus' | 'location' | 'camera' | 'check' | 'calendar' | 'truck' | 'trend' | 'info' | 'users' | 'refresh'
 
 const paths: Record<IconName, ReactNode> = {
   home: <><path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9M9 20v-6h6v6"/></>,
@@ -21,6 +21,8 @@ const paths: Record<IconName, ReactNode> = {
   truck: <><path d="M3 6h11v12H3zM14 10h4l3 3v5h-7z"/><circle cx="7.5" cy="18" r="1.5"/><circle cx="17.5" cy="18" r="1.5"/></>,
   trend: <><path d="m3 17 6-6 4 4 8-9"/><path d="M15 6h6v6"/></>,
   info: <><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></>,
+  users: <><path d="M16 20v-1.5a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4V20"/><circle cx="9.5" cy="7" r="4"/><path d="M20 20v-1.5a4 4 0 0 0-3-3.87M16 3.2a4 4 0 0 1 0 7.6"/></>,
+  refresh: <><path d="M20 7v5h-5"/><path d="M4.8 9A7.5 7.5 0 0 1 18 6l2 2M4 17v-5h5"/><path d="M19.2 15A7.5 7.5 0 0 1 6 18l-2-2"/></>,
 }
 
 export function Icon({ name, size = 20, ...props }: SVGProps<SVGSVGElement> & { name: IconName; size?: number }) {

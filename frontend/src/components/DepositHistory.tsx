@@ -62,7 +62,7 @@ export function DepositHistory() {
       const transaction = transactions.find(item => item.deposit_id === deposit.id)
       return <article className="deposit-history-row" key={deposit.id}>
         <div className="history-deposit-icon"><Icon name="recycle" size={18}/></div>
-        <div className="history-deposit-main"><strong>{materialNames.get(deposit.material_id) ?? 'Material no disponible en catálogo activo'}</strong><span>{ecopointNames.get(deposit.ecopoint_id) ?? 'EcoPunto no disponible en catálogo activo'} · {new Date(deposit.created_at).toLocaleString('es-CO')}</span></div>
+        <div className="history-deposit-main"><strong>{deposit.material_id ? materialNames.get(deposit.material_id) ?? 'Material no disponible en catálogo activo' : 'Material no identificado'}</strong><span>{ecopointNames.get(deposit.ecopoint_id) ?? 'EcoPunto no disponible en catálogo activo'} · {new Date(deposit.created_at).toLocaleString('es-CO')}</span></div>
         <span className="history-weight">{deposit.weight_g.toLocaleString('es-CO')} g</span>
         <span className="history-points">+{formatPoints(transaction?.amount ?? deposit.points_awarded)} pts</span>
       </article>

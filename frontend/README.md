@@ -33,4 +33,4 @@ Vite mostrará la dirección local del frontend, normalmente `http://localhost:5
 
 ## Estado funcional
 
-La autenticación y el registro de depósitos del ciudadano consumen la API; el historial de depósitos y puntos también consulta el backend. La gestión administrativa de EcoPuntos, materiales y compartimentos está conectada. Los indicadores de dashboard aún son demostrativos; beneficios/redenciones y los flujos de alertas y recolecciones de ADMIN/RECYCLER están pendientes de conexión en el frontend.
+El registro ciudadano consulta las universidades habilitadas y crea cuentas exclusivamente CITIZEN; el inicio de sesión y el perfil usan la API. CITIZEN consulta saldo, transacciones e historial propios y registra depósitos. ADMIN consulta resúmenes globales, gestiona EcoPuntos, materiales, compartimentos, usuarios y habilitación de universidades. ADMIN y RECYCLER consultan y resuelven alertas y revisan recolecciones; RECYCLER registra recolecciones dentro del ámbito que aplica el backend. Beneficios y redenciones siguen pendientes porque el backend no expone esos endpoints.

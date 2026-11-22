@@ -71,7 +71,7 @@ export function CitizenDashboard({ onNavigate }: { onNavigate: (view: 'Registrar
       <section className="panel activity-panel"><SectionHeading eyebrow="TU CONTRIBUCIÓN" title="Actividad reciente"><button className="text-link" onClick={() => onNavigate('Historial')}>Ver historial <Icon name="arrow" size={16}/></button></SectionHeading>
         {latestDeposits.length === 0 ? <p className="history-state">Aún no tienes depósitos registrados.</p> : <div className="activity-list">{latestDeposits.map(deposit => {
           const transaction = transactionByDeposit.get(deposit.id)
-          const materialName = materialNames.get(deposit.material_id) ?? 'Material no disponible en catálogo activo'
+          const materialName = (deposit.material_id ? materialNames.get(deposit.material_id) : undefined) ?? 'Material no identificado'
           const ecopointName = ecopointNames.get(deposit.ecopoint_id) ?? 'EcoPunto no disponible en catálogo activo'
           return <div className="activity-row" key={deposit.id}><div className="activity-symbol symbol-mint"><Icon name="recycle" size={19}/></div><div className="activity-name"><strong>{materialName}</strong><span>{ecopointName} · {new Date(deposit.created_at).toLocaleString('es-CO')}</span></div><div className="activity-weight">{formatWeight(deposit.weight_g)}</div><div className="activity-points">+{formatPoints(transaction?.amount ?? deposit.points_awarded)} pts</div></div>
         })}</div>}

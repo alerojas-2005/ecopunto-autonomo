@@ -5,6 +5,7 @@ export interface UserProfile {
   full_name: string
   email: string
   role: UserRole
+  university_id: string | null
   is_active: boolean
   created_at: string
 }
@@ -22,6 +23,43 @@ export interface RegisterData extends LoginCredentials {
 export interface UniversityRegistrationOption {
   id: string
   name: string
+}
+
+export interface UniversitySummary extends UniversityRegistrationOption {
+  slug: string
+  city: string
+  campus_name: string
+  address: string | null
+  active: boolean
+  public_registration_enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface UniversityPatch {
+  name?: string
+  slug?: string
+  city?: string
+  campus_name?: string
+  address?: string | null
+  active?: boolean
+  public_registration_enabled?: boolean
+}
+
+export interface UserAdminCreate {
+  email: string
+  full_name: string
+  password: string
+  role: UserRole
+  university_id?: string | null
+}
+
+export interface UserPatch {
+  email?: string
+  full_name?: string
+  role?: UserRole
+  university_id?: string | null
+  is_active?: boolean
 }
 
 export interface TokenResponse {
@@ -62,13 +100,19 @@ export interface CompartmentSummary {
 }
 
 export interface EcoPointCreate {
+  university_id: string
   code: string
   name: string
   address: string
   active: boolean
 }
 
-export type EcoPointPatch = Partial<EcoPointCreate>
+export interface EcoPointPatch {
+  code?: string
+  name?: string
+  address?: string
+  active?: boolean
+}
 
 export interface MaterialCreate {
   name: string
@@ -102,12 +146,43 @@ export interface DepositCreate {
   weight_g: number
 }
 
-export interface DepositSummary extends DepositCreate {
+export interface DepositSummary {
   id: string
   citizen_id: string
+  ecopoint_id: string
+  compartment_id: string
+  material_id: string | null
+  weight_g: number
   factor_applied: ApiDecimal
   points_awarded: ApiDecimal
   created_at: string
+}
+
+export type AlertStatus = 'ACTIVE' | 'RESOLVED'
+
+export interface AlertSummary {
+  id: string
+  compartment_id: string
+  type: string
+  status: AlertStatus
+  message: string
+  created_at: string
+  resolved_at: string | null
+}
+
+export interface CollectionCreate {
+  ecopoint_id: string
+  compartment_id: string
+  weight_kg: ApiDecimal
+  notes?: string | null
+}
+
+export interface CollectionSummary extends CollectionCreate {
+  id: string
+  recycler_id: string
+  status: string
+  created_at: string
+  notes: string | null
 }
 
 export interface BalanceSummary {
