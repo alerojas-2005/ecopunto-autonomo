@@ -24,3 +24,9 @@ Thumbs.db
 
 # VS Code
 .vscode/
+# Local database backups
+*.bak
+*.sqlite-wal
+*.sqlite-shm
+*.db-wal
+*.db-shm
