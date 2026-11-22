@@ -1,10 +1,11 @@
 
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import func, select
 
 from app.core.security import verify_password
-from app.models import University, User
+from app.models import University, User, UserRole
 
 
 def test_register_login_and_current_user(client, db_session, demo):
@@ -88,6 +89,110 @@ def test_registration_options_return_only_active_enabled_universities(client, db
     assert response.json() == [{"id": str(demo["university"].id), "name": demo["university"].name}]
 
 
+def test_university_management_is_global_only_for_admin(client, db_session, demo, auth_headers):
+    other = University(
+        name="Otra Universidad", slug="otra-universidad", city="Bogota",
+        campus_name="Sede alterna", active=False, public_registration_enabled=False,
+    )
+    db_session.add(other)
+    db_session.commit()
+    admin_headers = auth_headers(demo["admin"])
+    all_universities = client.get("/api/v1/universities", headers=admin_headers)
+    assert all_universities.status_code == 200
+    assert {item["id"] for item in all_universities.json()} == {
+        str(demo["university"].id), str(other.id),
+    }
+    active_universities = client.get("/api/v1/universities?active=true", headers=admin_headers)
+    assert {item["id"] for item in active_universities.json()} == {str(demo["university"].id)}
+    assert client.patch(
+        f"/api/v1/universities/{other.id}", headers=admin_headers,
+        json={"active": True, "public_registration_enabled": True},
+    ).status_code == 200
+
+    for user in (demo["citizen"], demo["recycler"]):
+        headers = auth_headers(user)
+        own = client.get("/api/v1/universities", headers=headers)
+        assert own.status_code == 200
+        assert [item["id"] for item in own.json()] == [str(demo["university"].id)]
+        assert client.get(f"/api/v1/universities/{other.id}", headers=headers).status_code == 404
+        assert client.patch(
+            f"/api/v1/universities/{demo['university'].id}", headers=headers,
+            json={"name": "Attempted edit"},
+        ).status_code == 403
+
+
+def test_admin_user_management_is_global_and_redacted(client, db_session, demo, auth_headers):
+    other_university = University(
+        name="Otra Universidad", slug="user-otra-universidad", city="Bogota",
+        campus_name="Sede principal", active=True,
+    )
+    db_session.add(other_university)
+    db_session.flush()
+    foreign_user = User(
+        email="foreign-user@example.test", full_name="Foreign User",
+        password_hash="sensitive-test-hash", role=UserRole.CITIZEN,
+        university=other_university,
+    )
+    db_session.add(foreign_user)
+    db_session.commit()
+
+    admin_headers = auth_headers(demo["admin"])
+    all_users = client.get("/api/v1/users", headers=admin_headers)
+    assert all_users.status_code == 200
+    assert {item["id"] for item in all_users.json()} == {
+        str(demo["citizen"].id), str(demo["other"].id), str(demo["recycler"].id),
+        str(demo["admin"].id), str(foreign_user.id),
+    }
+    assert all("password_hash" not in item and "password" not in item for item in all_users.json())
+    assert client.get(f"/api/v1/users/{foreign_user.id}", headers=admin_headers).status_code == 200
+
+    created = client.post("/api/v1/users", headers=admin_headers, json={
+        "email": "admin-created@example.com", "full_name": "Platform User",
+        "password": "A-long-test-password-123", "role": "CITIZEN",
+        "university_id": str(demo["university"].id),
+    })
+    assert created.status_code == 201, created.text
+    assert created.json()["university_id"] == str(demo["university"].id)
+    assert "password_hash" not in created.json() and "password" not in created.json()
+    assert client.post("/api/v1/users", headers=admin_headers, json={
+        "email": "admin-recycler@example.com", "full_name": "New Recycler",
+        "password": "A-long-test-password-123", "role": "RECYCLER",
+        "university_id": str(other_university.id),
+    }).status_code == 201
+    assert client.post("/api/v1/users", headers=admin_headers, json={
+        "email": "admin-legacy-role@example.com", "full_name": "Invalid Role",
+        "password": "A-long-test-password-123", "role": "UNIVERSITY_ADMIN",
+        "university_id": str(other_university.id),
+    }).status_code == 422
+    assert client.patch(
+        f"/api/v1/users/{foreign_user.id}", headers=admin_headers,
+        json={"role": "UNIVERSITY_ADMIN"},
+    ).status_code == 422
+
+    admin_update = client.patch(
+        f"/api/v1/users/{foreign_user.id}", headers=admin_headers,
+        json={"full_name": "Admin Updated"},
+    )
+    assert admin_update.status_code == 200
+    assert "password_hash" not in admin_update.json() and "password" not in admin_update.json()
+    global_role_update = client.patch(
+        f"/api/v1/users/{foreign_user.id}", headers=admin_headers,
+        json={"role": "ADMIN"},
+    )
+    assert global_role_update.status_code == 200
+    assert global_role_update.json()["role"] == "ADMIN"
+    assert global_role_update.json()["university_id"] is None
+    assert "password_hash" not in global_role_update.json()
+    for non_admin in (demo["citizen"], demo["recycler"]):
+        headers = auth_headers(non_admin)
+        assert client.get("/api/v1/users", headers=headers).status_code == 403
+        assert client.get(f"/api/v1/users/{foreign_user.id}", headers=headers).status_code == 403
+        assert client.patch(
+            f"/api/v1/users/{demo['citizen'].id}", headers=headers,
+            json={"full_name": "No Access"},
+        ).status_code == 403
+
+
 def test_authentication_and_role_permissions(client, db_session, demo, auth_headers):
     assert client.get("/api/v1/users/me").status_code == 401
 
@@ -135,6 +240,22 @@ def test_authentication_and_role_permissions(client, db_session, demo, auth_head
     assert recycler.status_code == 201
     assert recycler.json()["role"] == "RECYCLER"
     assert recycler.json()["id"]
+    assert recycler.json()["university_id"] == str(demo["university"].id)
+    assert "password_hash" not in recycler.json() and "password" not in recycler.json()
+    listed = client.get("/api/v1/users", headers=auth_headers(demo["admin"]))
+    assert any(user["id"] == recycler.json()["id"] for user in listed.json())
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "new-recycler@gmail.com", "password": "StrongPassword123!"},
+    )
+    assert login_response.status_code == 200
+    recycler_me = client.get(
+        "/api/v1/users/me",
+        headers={"Authorization": f"Bearer {login_response.json()['access_token']}"},
+    )
+    assert recycler_me.status_code == 200
+    assert recycler_me.json()["university_id"] == str(demo["university"].id)
+    assert recycler_me.json()["role"] == "RECYCLER"
 
 
 def test_create_institutional_user_rejects_invalid_university_without_partial_row(
@@ -226,6 +347,71 @@ def test_deposit_awards_points_updates_compartment_and_alert(
         ).json()
     ) == 1
 
+
+def test_unidentified_deposit_is_stored_without_points(client, demo, auth_headers, db_session):
+    from decimal import Decimal
+    from sqlalchemy import select
+    from app.models import Compartment, Deposit, PointTransaction
+
+    unknown = Compartment(
+        ecopoint_id=demo["point"].id, material_id=None, label="No identificados",
+        capacity_kg=Decimal("0.300"), current_kg=Decimal("0.000"),
+        fill_threshold_pct=80, active=True,
+    )
+    db_session.add(unknown)
+    db_session.commit()
+    unknown_id = unknown.id
+
+    response = client.post(
+        "/api/v1/deposits", headers=auth_headers(demo["citizen"]), json={
+            "ecopoint_id": str(demo["point"].id), "compartment_id": str(unknown_id), "weight_g": 250,
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["material_id"] is None
+    assert Decimal(response.json()["factor_applied"]) == Decimal("0.0000")
+    assert Decimal(response.json()["points_awarded"]) == Decimal("0.0000")
+    deposit_id = UUID(response.json()["id"])
+    deposit = db_session.get(Deposit, deposit_id)
+    assert deposit.material_id is None and deposit.points_awarded == Decimal("0.0000")
+    assert db_session.scalar(select(PointTransaction).where(PointTransaction.deposit_id == deposit_id)) is None
+    db_session.expire_all()
+    assert db_session.get(Compartment, unknown_id).current_kg == Decimal("0.250")
+    compartment_response = client.get(
+        f"/api/v1/ecopoints/{demo['point'].id}/compartments",
+        headers=auth_headers(demo["citizen"]),
+    )
+    unknown_response = next(item for item in compartment_response.json() if item["id"] == str(unknown_id))
+    assert Decimal(unknown_response["fill_percentage"]) == Decimal("83.33")
+    alerts = client.get("/api/v1/alerts", headers=auth_headers(demo["admin"]))
+    assert alerts.status_code == 200
+    assert any(item["compartment_id"] == str(unknown_id) for item in alerts.json())
+
+
+def test_catalog_seed_records_are_available_through_frontend_endpoints(
+    client, demo, auth_headers, db_session, monkeypatch
+):
+    from sqlalchemy.orm import sessionmaker
+    from app import seed as seed_module
+
+    monkeypatch.setattr(seed_module, "engine", db_session.get_bind())
+    monkeypatch.setattr(
+        seed_module, "SessionLocal", sessionmaker(bind=db_session.get_bind(), expire_on_commit=False)
+    )
+    seed_module.seed()
+
+    headers = auth_headers(demo["citizen"])
+    materials = client.get("/api/v1/materials", headers=headers)
+    points = client.get("/api/v1/ecopoints", headers=headers)
+    compartments = client.get(
+        f"/api/v1/ecopoints/{demo['point'].id}/compartments", headers=headers
+    )
+
+    assert materials.status_code == points.status_code == compartments.status_code == 200
+    assert len(materials.json()) == 7
+    assert any(item["id"] == str(demo["point"].id) for item in points.json())
+    assert len(compartments.json()) == 8
+    assert sum(item["material_id"] is None for item in compartments.json()) == 1
 
 def test_invalid_and_private_deposits(client, demo, auth_headers):
     headers = auth_headers(demo["citizen"])
