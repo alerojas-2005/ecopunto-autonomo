@@ -7,7 +7,7 @@ from app.core.config import settings
 from app.core.database import Base, engine
 from app.core.sqlite_integrity import install_sqlite_integrity_triggers
 from app import models  # noqa: F401 - registers every mapped table before create_all
-from app.routers import auth, catalog, deposits, operations, points, users
+from app.routers import auth, catalog, deposits, operations, points, users, universities
 
 
 @asynccontextmanager
@@ -34,7 +34,7 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "X-Bootstrap-Token"],
     )
     prefix = "/api/v1"
-    for route in (auth.router, users.router, catalog.router, deposits.router, points.router, operations.router):
+    for route in (auth.router, users.router, catalog.router, deposits.router, points.router, operations.router, universities.router):
         application.include_router(route, prefix=prefix)
 
     @application.get("/health", tags=["Sistema"])

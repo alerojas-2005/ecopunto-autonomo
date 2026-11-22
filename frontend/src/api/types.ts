@@ -16,6 +16,12 @@ export interface LoginCredentials {
 
 export interface RegisterData extends LoginCredentials {
   full_name: string
+  university_id: string
+}
+
+export interface UniversityRegistrationOption {
+  id: string
+  name: string
 }
 
 export interface TokenResponse {

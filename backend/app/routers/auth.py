@@ -2,25 +2,48 @@ import secrets
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models import User, UserRole
+from app.models import University, User, UserRole
 from app.repositories.users import by_email
 from app.schemas.api import BootstrapAdminRequest, LoginRequest, RegisterRequest, TokenResponse, UserRead
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
 
-@router.post("/register", status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
-def register(payload: RegisterRequest) -> None:
-    raise HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="El registro público está temporalmente deshabilitado mientras se implementa el registro institucional.",
-    )
+@router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> User:
+    university = db.get(University, payload.university_id)
+    if university is None:
+        raise HTTPException(status_code=404, detail="Universidad no encontrada")
+    if not university.active or not university.public_registration_enabled:
+        raise HTTPException(status_code=422, detail="La universidad no esta habilitada para registro")
 
+    email = str(payload.email).lower()
+    if by_email(db, email) is not None:
+        raise HTTPException(status_code=409, detail="Ya existe una cuenta con ese correo")
+
+    user = User(
+        email=email,
+        full_name=payload.full_name,
+        password_hash=hash_password(payload.password),
+        role=UserRole.CITIZEN,
+        university=university,
+    )
+    db.add(user)
+    try:
+        db.commit()
+        db.refresh(user)
+    except IntegrityError as exc:
+        db.rollback()
+        if by_email(db, email) is not None:
+            raise HTTPException(status_code=409, detail="Ya existe una cuenta con ese correo") from exc
+        raise
+    return user
 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:

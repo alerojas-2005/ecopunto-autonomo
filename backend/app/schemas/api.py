@@ -24,6 +24,7 @@ class RegisterRequest(RequestModel):
     email: EmailStr
     full_name: ShortName
     password: Annotated[str, Field(min_length=12, max_length=128)]
+    university_id: UUID
 
 
 class LoginRequest(RequestModel):
@@ -53,8 +54,15 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
-class BootstrapAdminRequest(RegisterRequest):
-    pass
+class BootstrapAdminRequest(RequestModel):
+    email: EmailStr
+    full_name: ShortName
+    password: Annotated[str, Field(min_length=12, max_length=128)]
+
+
+class UniversityRegistrationOption(ORMModel):
+    id: UUID
+    name: str
 
 
 class MaterialCreate(RequestModel):

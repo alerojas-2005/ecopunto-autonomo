@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { ApiError } from '../api/client'
-import type { LoginCredentials, RegisterData } from '../api/types'
+import type { LoginCredentials, RegisterData, UniversityRegistrationOption } from '../api/types'
+import { getRegistrationOptions } from '../api/universities'
 import { useAuth } from './useAuth'
 import { Icon } from '../components/Icon'
 import { Button } from '../components/UI'
@@ -15,14 +16,40 @@ export function AuthPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [universityId, setUniversityId] = useState('')
+  const [universities, setUniversities] = useState<UniversityRegistrationOption[]>([])
+  const [universityOptionsLoaded, setUniversityOptionsLoaded] = useState(false)
+  const [successMessage, setSuccessMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
+
+  useEffect(() => {
+    if (mode !== 'register') return
+    const controller = new AbortController()
+    getRegistrationOptions(controller.signal)
+      .then(options => {
+        setUniversities(options)
+        setUniversityId(current => options.some(option => option.id === current) ? current : '')
+        setUniversityOptionsLoaded(true)
+      })
+      .catch(error => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        setUniversities([])
+        setErrorMessage(error instanceof Error ? error.message : 'No se pudieron cargar las universidades.')
+        setUniversityOptionsLoaded(true)
+      })
+    return () => controller.abort()
+  }, [mode])
 
   const switchMode = (nextMode: AuthMode) => {
     setMode(nextMode)
+    if (nextMode === 'register') setUniversityOptionsLoaded(false)
     setErrorMessage('')
+    setSuccessMessage('')
     setPassword('')
     setConfirmPassword('')
   }
+
+  const universitiesLoading = mode === 'register' && !universityOptionsLoaded
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -50,12 +77,20 @@ export function AuthPage() {
         setErrorMessage('Las contraseñas no coinciden.')
         return
       }
+      if (!universityId) {
+        setErrorMessage('Selecciona una universidad habilitada.')
+        return
+      }
     }
 
     try {
       if (mode === 'register') {
-        const data: RegisterData = { full_name: fullName.trim(), email: email.trim(), password }
+        const data: RegisterData = { full_name: fullName.trim(), email: email.trim(), password, university_id: universityId }
         await register(data)
+        setMode('login')
+        setPassword('')
+        setConfirmPassword('')
+        setSuccessMessage('Tu cuenta de ciudadano fue creada. Ya puedes iniciar sesión con tu correo y contraseña.')
       } else {
         const credentials: LoginCredentials = { email: email.trim(), password }
         await login(credentials)
@@ -78,8 +113,12 @@ export function AuthPage() {
     <section className="auth-form-side">
       <div className="auth-form-wrap">
         <div className="auth-heading"><span className="eyebrow">{mode === 'login' ? 'QUÉ BUENO VERTE DE NUEVO' : 'COMIENZA A SUMAR'}</span><h2>{mode === 'login' ? 'Inicia sesión' : 'Crea tu cuenta'}</h2><p>{mode === 'login' ? 'Ingresa para continuar con EcoPunto.' : 'Regístrate como ciudadano para empezar.'}</p></div>
+        {successMessage && <div className="auth-success" role="status">
+          <Icon name="check" size={17}/><span>{successMessage}</span>
+        </div>}
         <form className="auth-form" onSubmit={onSubmit} noValidate>
           {mode === 'register' && <label className="auth-field"><span>Nombre completo</span><input autoComplete="name" value={fullName} onChange={event => setFullName(event.target.value)} maxLength={120} placeholder="Ej. María Rodríguez" required /></label>}
+          {mode === 'register' && <label className="auth-field"><span>Universidad</span><select value={universityId} onChange={event => setUniversityId(event.target.value)} disabled={universitiesLoading || universities.length === 0} required><option value="">{universitiesLoading ? 'Cargando universidades...' : universities.length ? 'Selecciona tu universidad' : 'No hay universidades disponibles'}</option>{universities.map(university => <option key={university.id} value={university.id}>{university.name}</option>)}</select></label>}
           <label className="auth-field"><span>Correo electrónico</span><input type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} maxLength={254} placeholder="nombre@correo.com" required /></label>
           <label className="auth-field"><span>Contraseña</span><input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} value={password} onChange={event => setPassword(event.target.value)} minLength={mode === 'register' ? 12 : 1} maxLength={128} placeholder={mode === 'register' ? 'Mínimo 12 caracteres' : 'Ingresa tu contraseña'} required /><small>{mode === 'register' ? 'Usa al menos 12 caracteres.' : 'Se enviará al backend de EcoPunto para validación.'}</small></label>
           {mode === 'register' && <label className="auth-field"><span>Confirma tu contraseña</span><input type="password" autoComplete="new-password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} maxLength={128} placeholder="Repite tu contraseña" required /></label>}

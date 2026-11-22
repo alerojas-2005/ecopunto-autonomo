@@ -3,8 +3,8 @@ from decimal import Decimal
 
 from sqlalchemy import func, select
 
-from app.core.security import hash_password
-from app.models import User, UserRole
+from app.core.security import verify_password
+from app.models import University, User
 
 
 def test_register_login_and_current_user(client, db_session, demo):
@@ -14,49 +14,78 @@ def test_register_login_and_current_user(client, db_session, demo):
             "email": "new@example.com",
             "full_name": "Nueva Ciudadana",
             "password": "StrongPassword123!",
+            "university_id": str(demo["university"].id),
         },
     )
-    assert response.status_code == 503
-    assert "registro público" in response.json()["detail"]
-    assert db_session.scalar(select(func.count()).select_from(User).where(User.email == "new@example.com")) == 0
-
-    # Login and /me remain covered using an institutional user in the isolated test DB.
-    citizen = User(
-        email="new@example.com",
-        full_name="Nueva Ciudadana",
-        password_hash=hash_password("StrongPassword123!"),
-        role=UserRole.CITIZEN,
-        university=demo["university"],
-    )
-    db_session.add(citizen)
-    db_session.commit()
+    assert response.status_code == 201, response.text
+    assert response.json()["role"] == "CITIZEN"
+    citizen = db_session.scalar(select(User).where(User.email == "new@example.com"))
+    assert citizen is not None
+    assert citizen.university_id == demo["university"].id
+    assert verify_password("StrongPassword123!", citizen.password_hash)
+    assert citizen.password_hash != "StrongPassword123!"
 
     login = client.post(
         "/api/v1/auth/login",
-        json={
-            "email": "new@example.com",
-            "password": "StrongPassword123!",
-        },
+        json={"email": "new@example.com", "password": "StrongPassword123!"},
     )
     assert login.status_code == 200
-
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     me = client.get("/api/v1/users/me", headers=headers)
-
     assert me.status_code == 200
     assert me.json()["email"] == "new@example.com"
 
-    forged_role = client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": "forged@example.com",
-            "full_name": "Sin Privilegios",
-            "password": "StrongPassword123!",
-            "role": "ADMIN",
-        },
-    )
-    assert forged_role.status_code == 422
+
+def test_registration_rejects_unknown_university_without_partial_user(client, db_session):
+    response = client.post("/api/v1/auth/register", json={
+        "email": "missing@example.com", "full_name": "Missing University",
+        "password": "StrongPassword123!",
+        "university_id": "00000000-0000-0000-0000-000000000000",
+    })
+    assert response.status_code == 404
+    assert db_session.scalar(select(func.count()).select_from(User).where(User.email == "missing@example.com")) == 0
+
+
+def test_registration_rejects_university_without_public_registration(client, db_session):
+    university = University(name="Closed", slug="closed", city="Bogota", campus_name="Main", active=True, public_registration_enabled=False)
+    db_session.add(university)
+    db_session.commit()
+    response = client.post("/api/v1/auth/register", json={
+        "email": "closed@example.com", "full_name": "Closed University",
+        "password": "StrongPassword123!", "university_id": str(university.id),
+    })
+    assert response.status_code == 422
+    assert db_session.scalar(select(func.count()).select_from(User).where(User.email == "closed@example.com")) == 0
+
+
+def test_registration_rejects_duplicate_email(client, db_session, demo):
+    demo["citizen"].email = "citizen@example.com"
+    db_session.commit()
+    response = client.post("/api/v1/auth/register", json={
+        "email": "CITIZEN@EXAMPLE.COM", "full_name": "Duplicate",
+        "password": "StrongPassword123!", "university_id": str(demo["university"].id),
+    })
+    assert response.status_code == 409
+
+
+def test_registration_rejects_administrative_role_field(client, db_session, demo):
+    response = client.post("/api/v1/auth/register", json={
+        "email": "forged@example.com", "full_name": "No Privileges",
+        "password": "StrongPassword123!", "university_id": str(demo["university"].id),
+        "role": "ADMIN",
+    })
+    assert response.status_code == 422
     assert db_session.scalar(select(func.count()).select_from(User).where(User.email == "forged@example.com")) == 0
+
+
+def test_registration_options_return_only_active_enabled_universities(client, db_session, demo):
+    disabled = University(name="Disabled", slug="disabled", city="Bogota", campus_name="Main", active=True, public_registration_enabled=False)
+    inactive = University(name="Inactive", slug="inactive", city="Bogota", campus_name="Main", active=False, public_registration_enabled=True)
+    db_session.add_all([disabled, inactive])
+    db_session.commit()
+    response = client.get("/api/v1/universities/registration-options")
+    assert response.status_code == 200
+    assert response.json() == [{"id": str(demo["university"].id), "name": demo["university"].name}]
 
 
 def test_authentication_and_role_permissions(client, db_session, demo, auth_headers):

@@ -33,18 +33,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     try {
       await registerCitizen(data)
-      await establishSession({ email: data.email, password: data.password })
-    } catch (error) {
-      setSession(null)
-      if (error instanceof ApiError && error.status === 401) {
-        throw new Error('La cuenta se creó, pero no se pudo iniciar la sesión. Intenta ingresar con tus datos.', { cause: error })
-      }
-      throw error
     } finally {
       setLoading(false)
     }
-  }, [establishSession])
-
+  }, [])
   const logout = useCallback(() => setSession(null), [])
 
   const refreshProfile = useCallback(async () => {
