@@ -16,7 +16,8 @@ SQLITE_INTEGRITY_TRIGGERS = (
         FROM users u
         JOIN ecopoints e ON e.university_id = u.university_id
         JOIN compartments c ON c.ecopoint_id = e.id
-            AND c.id = NEW.compartment_id AND c.material_id = NEW.material_id
+            AND c.id = NEW.compartment_id
+            AND ((c.material_id IS NULL AND NEW.material_id IS NULL) OR c.material_id = NEW.material_id)
         WHERE u.id = NEW.citizen_id AND u.role = 'CITIZEN' AND e.id = NEW.ecopoint_id
     )
     BEGIN
@@ -31,7 +32,8 @@ SQLITE_INTEGRITY_TRIGGERS = (
         FROM users u
         JOIN ecopoints e ON e.university_id = u.university_id
         JOIN compartments c ON c.ecopoint_id = e.id
-            AND c.id = NEW.compartment_id AND c.material_id = NEW.material_id
+            AND c.id = NEW.compartment_id
+            AND ((c.material_id IS NULL AND NEW.material_id IS NULL) OR c.material_id = NEW.material_id)
         WHERE u.id = NEW.citizen_id AND u.role = 'CITIZEN' AND e.id = NEW.ecopoint_id
     )
     BEGIN
@@ -150,5 +152,9 @@ def install_sqlite_integrity_triggers(engine: Engine) -> None:
     if engine.dialect.name != "sqlite":
         return
     with engine.begin() as connection:
+        # These two triggers changed to accept null material IDs only when the
+        # compartment itself is the no-points, unidentified-material compartment.
+        connection.exec_driver_sql("DROP TRIGGER IF EXISTS trg_deposits_university_insert")
+        connection.exec_driver_sql("DROP TRIGGER IF EXISTS trg_deposits_university_update")
         for statement in SQLITE_INTEGRITY_TRIGGERS:
             connection.exec_driver_sql(statement)

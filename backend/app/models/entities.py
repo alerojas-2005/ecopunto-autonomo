@@ -47,7 +47,6 @@ class UTCDateTime(TypeDecorator[datetime]):
 class UserRole(str, Enum):
     CITIZEN = "CITIZEN"
     ADMIN = "ADMIN"
-    UNIVERSITY_ADMIN = "UNIVERSITY_ADMIN"
     RECYCLER = "RECYCLER"
 
 
@@ -93,7 +92,7 @@ class User(Base):
     __table_args__ = (
         CheckConstraint(
             "(role = 'ADMIN' AND university_id IS NULL) OR "
-            "(role IN ('CITIZEN', 'RECYCLER', 'UNIVERSITY_ADMIN') AND university_id IS NOT NULL)",
+            "(role IN ('CITIZEN', 'RECYCLER') AND university_id IS NOT NULL)",
             name="ck_user_role_university",
         ),
         UniqueConstraint("id", "university_id", name="uq_user_id_university"),
@@ -152,10 +151,11 @@ class Compartment(Base):
         CheckConstraint("capacity_kg > 0", name="ck_compartment_capacity_positive"),
         CheckConstraint("current_kg >= 0", name="ck_compartment_weight_nonnegative"),
         CheckConstraint("fill_threshold_pct > 0 AND fill_threshold_pct <= 100", name="ck_compartment_threshold_range"),
+        CheckConstraint("material_id IS NOT NULL OR label = 'No identificados'", name="ck_unidentified_compartment_label"),
     )
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     ecopoint_id: Mapped[UUID] = mapped_column(ForeignKey("ecopoints.id", ondelete="RESTRICT"), index=True)
-    material_id: Mapped[UUID] = mapped_column(ForeignKey("materials.id", ondelete="RESTRICT"), index=True)
+    material_id: Mapped[UUID | None] = mapped_column(ForeignKey("materials.id", ondelete="RESTRICT"), nullable=True, index=True)
     label: Mapped[str] = mapped_column(String(80))
     capacity_kg: Mapped[Decimal] = mapped_column(Numeric(10, 3))
     current_kg: Mapped[Decimal] = mapped_column(Numeric(10, 3), default=Decimal("0"))
@@ -163,7 +163,7 @@ class Compartment(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     ecopoint: Mapped[EcoPoint] = relationship(back_populates="compartments")
-    material: Mapped[Material] = relationship(back_populates="compartments")
+    material: Mapped[Material | None] = relationship(back_populates="compartments")
     deposits: Mapped[list["Deposit"]] = relationship(back_populates="compartment")
     collections: Mapped[list["Collection"]] = relationship(back_populates="compartment")
     alerts: Mapped[list["Alert"]] = relationship(back_populates="compartment")
@@ -179,14 +179,17 @@ class Deposit(Base):
     __tablename__ = "deposits"
     __table_args__ = (
         CheckConstraint("weight_g > 0", name="ck_deposit_weight_positive"),
-        CheckConstraint("factor_applied > 0", name="ck_deposit_factor_positive"),
-        CheckConstraint("points_awarded > 0", name="ck_deposit_points_positive"),
+        CheckConstraint(
+            "(material_id IS NULL AND factor_applied = 0 AND points_awarded = 0) OR "
+            "(material_id IS NOT NULL AND factor_applied > 0 AND points_awarded > 0)",
+            name="ck_deposit_reward_matches_material",
+        ),
     )
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     citizen_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     ecopoint_id: Mapped[UUID] = mapped_column(ForeignKey("ecopoints.id", ondelete="RESTRICT"), index=True)
     compartment_id: Mapped[UUID] = mapped_column(ForeignKey("compartments.id", ondelete="RESTRICT"), index=True)
-    material_id: Mapped[UUID] = mapped_column(ForeignKey("materials.id", ondelete="RESTRICT"), index=True)
+    material_id: Mapped[UUID | None] = mapped_column(ForeignKey("materials.id", ondelete="RESTRICT"), nullable=True, index=True)
     weight_g: Mapped[int]
     factor_applied: Mapped[Decimal] = mapped_column(Numeric(10, 4))
     points_awarded: Mapped[Decimal] = mapped_column(Numeric(14, 4))
@@ -195,7 +198,7 @@ class Deposit(Base):
     citizen: Mapped[User] = relationship(back_populates="deposits")
     ecopoint: Mapped[EcoPoint] = relationship(back_populates="deposits")
     compartment: Mapped[Compartment] = relationship(back_populates="deposits")
-    material: Mapped[Material] = relationship(back_populates="deposits")
+    material: Mapped[Material | None] = relationship(back_populates="deposits")
     point_transaction: Mapped["PointTransaction | None"] = relationship(back_populates="deposit", uselist=False)
 
 

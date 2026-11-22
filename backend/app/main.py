@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import Base, engine
 from app.core.sqlite_integrity import install_sqlite_integrity_triggers
+from app.core.sqlite_migrations import upgrade_unidentified_deposits
 from app import models  # noqa: F401 - registers every mapped table before create_all
 from app.routers import auth, catalog, deposits, operations, points, users, universities
 
@@ -13,6 +14,7 @@ from app.routers import auth, catalog, deposits, operations, points, users, univ
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     active_engine = application.state.engine
+    upgrade_unidentified_deposits(active_engine)
     Base.metadata.create_all(bind=active_engine)
     install_sqlite_integrity_triggers(active_engine)
     yield

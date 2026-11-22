@@ -34,9 +34,10 @@ class LoginRequest(RequestModel):
 
 class UserRead(ORMModel):
     id: UUID
-    email: EmailStr
+    email: str
     full_name: str
     role: UserRole
+    university_id: UUID | None
     is_active: bool
     created_at: datetime
 
@@ -47,6 +48,37 @@ class UserAdminCreate(RequestModel):
     password: Annotated[str, Field(min_length=12, max_length=128)]
     role: UserRole
     university_id: UUID | None = None
+
+
+class UserUpdate(RequestModel):
+    email: EmailStr | None = None
+    full_name: ShortName | None = None
+    role: UserRole | None = None
+    university_id: UUID | None = None
+    is_active: bool | None = None
+
+
+class UniversityRead(ORMModel):
+    id: UUID
+    name: str
+    slug: str
+    city: str
+    campus_name: str
+    address: str | None
+    active: bool
+    public_registration_enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class UniversityUpdate(RequestModel):
+    name: Annotated[str | None, StringConstraints(strip_whitespace=True, min_length=1, max_length=160)] = None
+    slug: Annotated[str | None, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)] = None
+    city: Annotated[str | None, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)] = None
+    campus_name: Annotated[str | None, StringConstraints(strip_whitespace=True, min_length=1, max_length=160)] = None
+    address: Annotated[str | None, Field(max_length=240)] = None
+    active: bool | None = None
+    public_registration_enabled: bool | None = None
 
 
 class TokenResponse(BaseModel):
@@ -88,6 +120,7 @@ class MaterialRead(ORMModel):
 
 
 class EcoPointCreate(RequestModel):
+    university_id: UUID | None = None
     code: Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=40)]
     name: ShortName
     address: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=240)]
@@ -111,7 +144,7 @@ class EcoPointRead(ORMModel):
 
 
 class CompartmentCreate(RequestModel):
-    material_id: UUID
+    material_id: UUID | None = None
     label: ShortName
     capacity_kg: PositiveWeightKg
     current_kg: Annotated[Decimal, Field(ge=0, max_digits=10, decimal_places=3)] = Decimal("0")
@@ -129,7 +162,7 @@ class CompartmentPatch(RequestModel):
 class CompartmentRead(ORMModel):
     id: UUID
     ecopoint_id: UUID
-    material_id: UUID
+    material_id: UUID | None
     label: str
     capacity_kg: Decimal
     current_kg: Decimal
@@ -141,7 +174,7 @@ class CompartmentRead(ORMModel):
 class DepositCreate(RequestModel):
     ecopoint_id: UUID
     compartment_id: UUID
-    material_id: UUID
+    material_id: UUID | None = None
     weight_g: Annotated[int, Field(gt=0, le=100_000)]
 
 
@@ -150,7 +183,7 @@ class DepositRead(ORMModel):
     citizen_id: UUID
     ecopoint_id: UUID
     compartment_id: UUID
-    material_id: UUID
+    material_id: UUID | None
     weight_g: int
     factor_applied: Decimal
     points_awarded: Decimal

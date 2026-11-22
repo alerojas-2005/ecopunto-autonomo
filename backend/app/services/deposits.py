@@ -26,41 +26,62 @@ def award_points(weight_g: int, factor: Decimal) -> Decimal:
 
 
 def register_deposit(db: Session, citizen: User, payload: DepositCreate) -> Deposit:
-    ecopoint = db.get(EcoPoint, payload.ecopoint_id)
-    compartment = db.get(Compartment, payload.compartment_id)
-    material = db.get(Material, payload.material_id)
-    if ecopoint is None or compartment is None or material is None:
-        raise HTTPException(status_code=404, detail="EcoPunto, compartimento o material no encontrado")
+    if citizen.university_id is None:
+        raise HTTPException(status_code=404, detail="EcoPunto no encontrado")
+    ecopoint = db.scalar(select(EcoPoint).where(
+        EcoPoint.id == payload.ecopoint_id,
+        EcoPoint.university_id == citizen.university_id,
+    ))
+    if ecopoint is None:
+        raise HTTPException(status_code=404, detail="EcoPunto no encontrado")
     if not ecopoint.active:
         raise HTTPException(status_code=409, detail="No se permiten depósitos en un EcoPunto inactivo")
-    if citizen.university_id is None or ecopoint.university_id != citizen.university_id:
-        raise HTTPException(status_code=404, detail="EcoPunto no encontrado")
-    if not compartment.active or not material.active:
-        raise HTTPException(status_code=409, detail="El compartimento o material está inactivo")
-    if compartment.ecopoint_id != ecopoint.id or compartment.material_id != material.id:
-        raise HTTPException(status_code=400, detail="El compartimento no corresponde al EcoPunto y material indicados")
+    compartment = db.scalar(select(Compartment).where(
+        Compartment.id == payload.compartment_id,
+        Compartment.ecopoint_id == ecopoint.id,
+    ))
+    if compartment is None:
+        raise HTTPException(status_code=404, detail="Compartimento no encontrado")
+    if not compartment.active:
+        raise HTTPException(status_code=409, detail="El compartimento esta inactivo")
+    if compartment.material_id is None:
+        if compartment.label != "No identificados":
+            raise HTTPException(status_code=409, detail="Compartimento sin material no válido")
+        if payload.material_id is not None:
+            raise HTTPException(status_code=400, detail="El compartimento No identificados no admite material asignado")
+        material = None
+    else:
+        if payload.material_id != compartment.material_id:
+            raise HTTPException(status_code=400, detail="El compartimento no corresponde al material indicado")
+        material = db.get(Material, compartment.material_id)
+        if material is None:
+            raise HTTPException(status_code=404, detail="Material no encontrado")
+        if not material.active:
+            raise HTTPException(status_code=409, detail="El material esta inactivo")
 
     added_kg = Decimal(payload.weight_g) / Decimal("1000")
     new_weight = Decimal(compartment.current_kg) + added_kg
     if new_weight > Decimal(compartment.capacity_kg):
         raise HTTPException(status_code=409, detail="El depósito supera la capacidad disponible del compartimento")
-    points = award_points(payload.weight_g, Decimal(material.points_per_gram))
+    factor = Decimal(material.points_per_gram) if material is not None else Decimal("0")
+    points = award_points(payload.weight_g, factor) if material is not None else Decimal("0")
 
     try:
         deposit = Deposit(
             id=uuid4(), citizen_id=citizen.id, ecopoint_id=ecopoint.id,
-            compartment_id=compartment.id, material_id=material.id,
-            weight_g=payload.weight_g, factor_applied=material.points_per_gram,
+            compartment_id=compartment.id, material_id=material.id if material is not None else None,
+            weight_g=payload.weight_g, factor_applied=factor,
             points_awarded=points,
         )
         db.add(deposit)
         compartment.current_kg = new_weight
         db.flush()
-        db.add(PointTransaction(
-            id=uuid4(), user_id=citizen.id, deposit_id=deposit.id,
-            type=TransactionType.EARN, amount=points,
-            description=f"Depósito de {material.name} ({payload.weight_g} g)",
-        ))
+        if material is not None:
+            db.add(PointTransaction(
+                id=uuid4(), user_id=citizen.id, deposit_id=deposit.id,
+                type=TransactionType.EARN, amount=points,
+                description=f"Depósito de {material.name} ({payload.weight_g} g)",
+            ))
         if compartment.fill_percentage >= Decimal(compartment.fill_threshold_pct):
             active_alert = db.scalar(select(Alert).where(
                 Alert.compartment_id == compartment.id,
