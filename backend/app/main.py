@@ -8,7 +8,7 @@ from app.core.database import Base, engine
 from app.core.sqlite_integrity import install_sqlite_integrity_triggers
 from app.core.sqlite_migrations import upgrade_unidentified_deposits
 from app import models  # noqa: F401 - registers every mapped table before create_all
-from app.routers import auth, catalog, deposits, operations, points, users, universities
+from app.routers import auth, catalog, deposits, operations, points, recyclers, users, universities
 
 
 @asynccontextmanager
@@ -32,11 +32,11 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Bootstrap-Token"],
     )
     prefix = "/api/v1"
-    for route in (auth.router, users.router, catalog.router, deposits.router, points.router, operations.router, universities.router):
+    for route in (auth.router, users.router, catalog.router, deposits.router, points.router, operations.router, universities.router, recyclers.router):
         application.include_router(route, prefix=prefix)
 
     @application.get("/health", tags=["Sistema"])

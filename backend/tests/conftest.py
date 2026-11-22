@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -15,13 +15,19 @@ from app import models  # noqa: E402,F401
 from app.core.database import Base, get_db  # noqa: E402
 from app.core.security import create_access_token, hash_password  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import Compartment, EcoPoint, Material, University, User, UserRole  # noqa: E402
+from app.models import Compartment, EcoPoint, Material, RecyclerLinkType, RecyclerProfile, University, User, UserRole  # noqa: E402
 
 test_engine = create_engine(
     "sqlite://",
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
+@event.listens_for(test_engine, "connect")
+def enable_test_foreign_keys(connection, _record):
+    cursor = connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
 TestingSessionLocal = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
 
 
@@ -67,6 +73,14 @@ def demo(db_session):
     compartment = Compartment(id=uuid4(), ecopoint=point, material=pet, label="PET", capacity_kg=Decimal("20.000"), current_kg=Decimal("19.000"), fill_threshold_pct=80, active=True)
     aluminum_compartment = Compartment(id=uuid4(), ecopoint=point, material=aluminum, label="Aluminio", capacity_kg=Decimal("20.000"), current_kg=Decimal("0.000"), fill_threshold_pct=80, active=True)
     db_session.add_all([university, citizen, other_citizen, admin, recycler, aluminum, pet, point, compartment, aluminum_compartment])
+    # Persist parent account rows before the separately keyed recycler profile.
+    db_session.flush()
+    recycler_profile = RecyclerProfile(
+        user_id=recycler.id,
+        organization_id=None,
+        link_type=RecyclerLinkType.INDEPENDENT,
+    )
+    db_session.add(recycler_profile)
     db_session.commit()
     return {"university": university, "citizen": citizen, "other": other_citizen, "admin": admin, "recycler": recycler, "pet": pet, "aluminum": aluminum, "point": point, "compartment": compartment, "aluminum_compartment": aluminum_compartment}
 

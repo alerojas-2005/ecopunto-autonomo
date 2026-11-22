@@ -289,3 +289,108 @@ def upgrade_unidentified_deposits(engine: Engine) -> bool:
             connection.exec_driver_sql("PRAGMA foreign_keys=ON")
         finally:
             connection.close()
+
+
+def _upgrade_recycler_module_columns(connection: Connection) -> None:
+    tables = _table_names(connection)
+    if "recycler_profiles" in tables:
+        profile_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info("recycler_profiles")')}
+        if "link_type" not in profile_columns:
+            connection.exec_driver_sql("ALTER TABLE recycler_profiles ADD COLUMN link_type VARCHAR(12) NOT NULL DEFAULT 'INDEPENDENT'")
+            if "organization_id" in profile_columns:
+                connection.exec_driver_sql("UPDATE recycler_profiles SET link_type='ORGANIZATION' WHERE organization_id IS NOT NULL")
+        if "document_type" not in profile_columns:
+            connection.exec_driver_sql("ALTER TABLE recycler_profiles ADD COLUMN document_type VARCHAR(20)")
+        if "document_number" not in profile_columns:
+            connection.exec_driver_sql("ALTER TABLE recycler_profiles ADD COLUMN document_number VARCHAR(40)")
+        if "status" not in profile_columns:
+            connection.exec_driver_sql("ALTER TABLE recycler_profiles ADD COLUMN status VARCHAR(12) NOT NULL DEFAULT 'ACTIVE'")
+            connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_recycler_profiles_status ON recycler_profiles(status)")
+    if "recycler_assignments" in tables:
+        assignment_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info("recycler_assignments")')}
+        if "organization_id" not in assignment_columns:
+            connection.exec_driver_sql("ALTER TABLE recycler_assignments ADD COLUMN organization_id CHAR(32) REFERENCES organizations(id) ON DELETE RESTRICT")
+        if "origin" not in assignment_columns:
+            connection.exec_driver_sql("ALTER TABLE recycler_assignments ADD COLUMN origin VARCHAR(12) NOT NULL DEFAULT 'DIRECT'")
+            connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_recycler_assignments_origin ON recycler_assignments(origin)")
+    if "collections" in tables:
+        collection_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info("collections")')}
+        if "material_id" not in collection_columns:
+            connection.exec_driver_sql("ALTER TABLE collections ADD COLUMN material_id CHAR(32) REFERENCES materials(id) ON DELETE RESTRICT")
+            connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_collections_material_id ON collections(material_id)")
+
+
+def upgrade_recycler_university_optional(engine: Engine) -> bool:
+    """Allow RECYCLER rows without university_id while preserving all user rows.
+
+    Deliberately not invoked during application startup. Deploy only after a verified
+    backup and explicit operator action; it does not assign legacy user scopes.
+    """
+    if engine.dialect.name != "sqlite":
+        return False
+    connection = engine.connect().execution_options(isolation_level="AUTOCOMMIT")
+    try:
+        if connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one() != 1:
+            raise RuntimeError("La migración requiere claves foráneas SQLite activas")
+        # Keep enforcement enabled while rebuilding users. Defer validation until
+        # the replacement table has its final name so dependent rows stay intact.
+        connection.exec_driver_sql("PRAGMA defer_foreign_keys=ON")
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        try:
+            original = connection.exec_driver_sql(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='users'"
+            ).scalar_one_or_none()
+            if original is None:
+                connection.exec_driver_sql("COMMIT")
+                return False
+            old_clause = "(role IN ('CITIZEN', 'RECYCLER') AND university_id IS NOT NULL)"
+            new_clause = "(role = 'CITIZEN' AND university_id IS NOT NULL) OR (role = 'RECYCLER')"
+            if old_clause not in original:
+                if "role = 'RECYCLER'" in original:
+                    _upgrade_recycler_module_columns(connection)
+                    connection.exec_driver_sql("COMMIT")
+                    return False
+                raise RuntimeError("Restricción de users desconocida; revisión manual requerida")
+            columns = connection.exec_driver_sql('PRAGMA table_info("users")').all()
+            names = [str(row[1]) for row in columns]
+            indexes = connection.exec_driver_sql(
+                "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='users' AND sql IS NOT NULL"
+            ).scalars().all()
+            triggers = connection.exec_driver_sql(
+                "SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name='users' AND sql IS NOT NULL"
+            ).scalars().all()
+            before = tuple(tuple(row) for row in connection.exec_driver_sql("SELECT * FROM users ORDER BY id"))
+            replacement = original.replace('CREATE TABLE users', 'CREATE TABLE users__new', 1).replace(old_clause, new_clause, 1)
+            if replacement == original:
+                replacement = original.replace('CREATE TABLE "users"', 'CREATE TABLE "users__new"', 1).replace(old_clause, new_clause, 1)
+            if replacement == original:
+                raise RuntimeError("No se pudo preparar la tabla users; revisión manual requerida")
+            connection.exec_driver_sql(replacement)
+            quoted = ", ".join(_quote_identifier(name) for name in names)
+            connection.exec_driver_sql(f"INSERT INTO users__new ({quoted}) SELECT {quoted} FROM users")
+            connection.exec_driver_sql("DROP TABLE users")
+            connection.exec_driver_sql("ALTER TABLE users__new RENAME TO users")
+            for statement in indexes + triggers:
+                connection.exec_driver_sql(statement)
+            _upgrade_recycler_module_columns(connection)
+            after = tuple(tuple(row) for row in connection.exec_driver_sql("SELECT * FROM users ORDER BY id"))
+            if before != after:
+                raise RuntimeError("La migración modificó filas de users")
+            violations = connection.exec_driver_sql("PRAGMA foreign_key_check").all()
+            if violations:
+                raise RuntimeError(f"La migración dejó claves foráneas inválidas: {violations[:5]}")
+            # Replacing a referenced SQLite parent table can leave the engine's
+            # deferred-FK counter stale even after the final schema/data pass its
+            # explicit check. Clear deferred mode only after proving there are no
+            # violations, then commit with FK enforcement still enabled.
+            connection.exec_driver_sql("PRAGMA defer_foreign_keys=OFF")
+            connection.exec_driver_sql("COMMIT")
+            return True
+        except Exception:
+            connection.exec_driver_sql("ROLLBACK")
+            raise
+    finally:
+        try:
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+        finally:
+            connection.close()

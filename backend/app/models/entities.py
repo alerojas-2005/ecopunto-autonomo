@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     Boolean,
+    Column,
     CheckConstraint,
     DateTime,
     Enum as SAEnum,
@@ -12,6 +13,7 @@ from sqlalchemy import (
     Index,
     Numeric,
     String,
+    Table,
     Text,
     UniqueConstraint,
     Uuid,
@@ -68,6 +70,50 @@ class CollectionStatus(str, Enum):
     COMPLETED = "COMPLETED"
 
 
+class OrganizationType(str, Enum):
+    ASSOCIATION = "ASSOCIATION"
+    COOPERATIVE = "COOPERATIVE"
+    COMPANY = "COMPANY"
+    INDEPENDENT = "INDEPENDENT"
+    OTHER = "OTHER"
+
+
+class OrganizationStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    PENDING = "PENDING"
+
+
+class AssignmentStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    PENDING = "PENDING"
+    SUSPENDED = "SUSPENDED"
+
+
+class RecyclerLinkType(str, Enum):
+    ORGANIZATION = "ORGANIZATION"
+    INDEPENDENT = "INDEPENDENT"
+
+
+class RecyclerProfileStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    SUSPENDED = "SUSPENDED"
+    PENDING = "PENDING"
+
+
+organization_sectors = Table(
+    "organization_sectors", Base.metadata,
+    Column("organization_id", Uuid(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True),
+    Column("sector_id", Uuid(as_uuid=True), ForeignKey("coverage_sectors.id", ondelete="RESTRICT"), primary_key=True),
+)
+sector_ecopoints = Table(
+    "sector_ecopoints", Base.metadata,
+    Column("sector_id", Uuid(as_uuid=True), ForeignKey("coverage_sectors.id", ondelete="CASCADE"), primary_key=True),
+    Column("ecopoint_id", Uuid(as_uuid=True), ForeignKey("ecopoints.id", ondelete="RESTRICT"), primary_key=True),
+)
+
+
 class University(Base):
     __tablename__ = "universities"
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -87,12 +133,71 @@ class University(Base):
     ecopoints: Mapped[list["EcoPoint"]] = relationship(back_populates="university")
 
 
+class Organization(Base):
+    __tablename__ = "organizations"
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    name: Mapped[str] = mapped_column(String(160), index=True)
+    type: Mapped[OrganizationType] = mapped_column(SAEnum(OrganizationType, native_enum=False, length=16), index=True)
+    tax_id: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    address: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    city: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[OrganizationStatus] = mapped_column(SAEnum(OrganizationStatus, native_enum=False, length=12), default=OrganizationStatus.PENDING, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+    sectors: Mapped[list["CoverageSector"]] = relationship(secondary=organization_sectors, back_populates="organizations")
+
+
+class RecyclerProfile(Base):
+    __tablename__ = "recycler_profiles"
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), primary_key=True)
+    organization_id: Mapped[UUID | None] = mapped_column(ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=True, index=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    link_type: Mapped[RecyclerLinkType] = mapped_column(SAEnum(RecyclerLinkType, native_enum=False, length=12), default=RecyclerLinkType.INDEPENDENT)
+    document_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    document_number: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    status: Mapped[RecyclerProfileStatus] = mapped_column(SAEnum(RecyclerProfileStatus, native_enum=False, length=12), default=RecyclerProfileStatus.ACTIVE, index=True)
+    linked_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
+    user: Mapped["User"] = relationship(back_populates="recycler_profile", foreign_keys=[user_id])
+
+
+class CoverageSector(Base):
+    __tablename__ = "coverage_sectors"
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    locality: Mapped[str] = mapped_column(String(120), index=True)
+    name: Mapped[str] = mapped_column(String(160), index=True)
+    city: Mapped[str] = mapped_column(String(120), default="Bogotá")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    organizations: Mapped[list[Organization]] = relationship(secondary=organization_sectors, back_populates="sectors")
+    ecopoints: Mapped[list["EcoPoint"]] = relationship(secondary=sector_ecopoints, back_populates="coverage_sectors")
+
+
+class RecyclerAssignment(Base):
+    __tablename__ = "recycler_assignments"
+    __table_args__ = (UniqueConstraint("recycler_id", "sector_id", "university_id", "ecopoint_id", "status", name="uq_recycler_assignment_scope_status"),)
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    recycler_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
+    organization_id: Mapped[UUID | None] = mapped_column(ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=True, index=True)
+    origin: Mapped[str] = mapped_column(String(12), default="DIRECT", index=True)
+    sector_id: Mapped[UUID | None] = mapped_column(ForeignKey("coverage_sectors.id", ondelete="RESTRICT"), nullable=True, index=True)
+    university_id: Mapped[UUID | None] = mapped_column(ForeignKey("universities.id", ondelete="RESTRICT"), nullable=True, index=True)
+    ecopoint_id: Mapped[UUID | None] = mapped_column(ForeignKey("ecopoints.id", ondelete="RESTRICT"), nullable=True, index=True)
+    starts_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC))
+    ends_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    status: Mapped[AssignmentStatus] = mapped_column(SAEnum(AssignmentStatus, native_enum=False, length=12), default=AssignmentStatus.PENDING, index=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint(
             "(role = 'ADMIN' AND university_id IS NULL) OR "
-            "(role IN ('CITIZEN', 'RECYCLER') AND university_id IS NOT NULL)",
+            "(role = 'CITIZEN' AND university_id IS NOT NULL) OR "
+            "(role = 'RECYCLER')",
             name="ck_user_role_university",
         ),
         UniqueConstraint("id", "university_id", name="uq_user_id_university"),
@@ -110,6 +215,9 @@ class User(Base):
     deposits: Mapped[list["Deposit"]] = relationship(back_populates="citizen")
     transactions: Mapped[list["PointTransaction"]] = relationship(back_populates="user")
     collections: Mapped[list["Collection"]] = relationship(back_populates="recycler", foreign_keys="Collection.recycler_id")
+    recycler_profile: Mapped["RecyclerProfile | None"] = relationship(
+        back_populates="user", uselist=False, foreign_keys="RecyclerProfile.user_id"
+    )
 
 
 class EcoPoint(Base):
@@ -130,6 +238,7 @@ class EcoPoint(Base):
     compartments: Mapped[list["Compartment"]] = relationship(back_populates="ecopoint")
     deposits: Mapped[list["Deposit"]] = relationship(back_populates="ecopoint")
     collections: Mapped[list["Collection"]] = relationship(back_populates="ecopoint")
+    coverage_sectors: Mapped[list[CoverageSector]] = relationship(secondary=sector_ecopoints, back_populates="ecopoints")
 
 
 class Material(Base):
@@ -242,6 +351,7 @@ class Collection(Base):
     ecopoint_id: Mapped[UUID] = mapped_column(ForeignKey("ecopoints.id", ondelete="RESTRICT"), index=True)
     compartment_id: Mapped[UUID] = mapped_column(ForeignKey("compartments.id", ondelete="RESTRICT"), index=True)
     recycler_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
+    material_id: Mapped[UUID | None] = mapped_column(ForeignKey("materials.id", ondelete="RESTRICT"), nullable=True, index=True)
     weight_kg: Mapped[Decimal] = mapped_column(Numeric(10, 3))
     status: Mapped[CollectionStatus] = mapped_column(SAEnum(CollectionStatus, native_enum=False, length=16), default=CollectionStatus.COMPLETED)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=lambda: datetime.now(UTC), index=True)

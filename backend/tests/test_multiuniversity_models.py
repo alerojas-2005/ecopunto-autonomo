@@ -24,16 +24,24 @@ def test_university_slug_is_unique(db_session):
     db_session.rollback()
 
 
-def test_role_requires_university_except_platform_admin(db_session):
+def test_role_university_requirements_match_actor_scope(db_session):
     assert {role.value for role in UserRole} == {"ADMIN", "RECYCLER", "CITIZEN"}
-    for role in (UserRole.CITIZEN, UserRole.RECYCLER):
-        db_session.add(User(
-            email=f"{role.value.lower()}-no-university@example.test", full_name="Institutional",
-            password_hash="hash", role=role,
-        ))
-        with pytest.raises(IntegrityError):
-            db_session.commit()
-        db_session.rollback()
+    citizen = User(
+        email="citizen-no-university@example.test", full_name="Citizen",
+        password_hash="hash", role=UserRole.CITIZEN,
+    )
+    db_session.add(citizen)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+    recycler = User(
+        email="recycler-no-university@example.test", full_name="Independent recycler",
+        password_hash="hash", role=UserRole.RECYCLER,
+    )
+    db_session.add(recycler)
+    db_session.commit()
+    assert recycler.university_id is None
 
     admin = User(
         email="admin-no-university@example.test", full_name="Admin",
@@ -106,7 +114,8 @@ def test_domain_validation_and_sqlite_triggers_reject_cross_university_inserts(c
     with pytest.raises(IntegrityError, match="collection university or resource mismatch"):
         db_session.add(Collection(
             ecopoint_id=point.id, compartment_id=compartment.id,
-            recycler_id=demo["recycler"].id, weight_kg=Decimal("1.000"),
+            recycler_id=demo["recycler"].id, material_id=compartment.material_id,
+            weight_kg=Decimal("1.000"),
         ))
         db_session.flush()
     db_session.rollback()
@@ -128,7 +137,7 @@ def test_domain_validation_and_sqlite_triggers_reject_cross_university_inserts(c
 
 
 def test_sqlite_triggers_reject_cross_university_updates(client, db_session, demo):
-    other_university, other_point, _, material = _create_other_university_point(
+    other_university, other_point, other_compartment, material = _create_other_university_point(
         db_session, demo, code="TEST-03"
     )
     deposit = Deposit(
@@ -138,7 +147,8 @@ def test_sqlite_triggers_reject_cross_university_updates(client, db_session, dem
     )
     collection = Collection(
         ecopoint_id=demo["point"].id, compartment_id=demo["compartment"].id,
-        recycler_id=demo["recycler"].id, weight_kg=Decimal("1.000"),
+        recycler_id=demo["recycler"].id, material_id=demo["compartment"].material_id,
+        weight_kg=Decimal("1.000"),
     )
     db_session.add_all([deposit, collection])
     db_session.flush()
@@ -148,6 +158,16 @@ def test_sqlite_triggers_reject_cross_university_updates(client, db_session, dem
     )
     db_session.add(transaction)
     db_session.commit()
+
+    cross_university_collection = Collection(
+        ecopoint_id=other_point.id, compartment_id=other_compartment.id,
+        recycler_id=demo["recycler"].id, material_id=other_compartment.material_id,
+        weight_kg=Decimal("1.000"),
+    )
+    db_session.add(cross_university_collection)
+    with pytest.raises(IntegrityError, match="collection university or resource mismatch"):
+        db_session.flush()
+    db_session.rollback()
 
     deposit = db_session.get(Deposit, deposit.id)
     deposit.ecopoint_id = other_point.id
@@ -221,6 +241,7 @@ def _add_alert(db_session, compartment, message):
 def _add_collection(db_session, user, point, compartment):
     collection = Collection(
         ecopoint=point, compartment=compartment, recycler=user,
+        material_id=compartment.material_id,
         weight_kg=Decimal("1.000"), notes="Scope test",
     )
     db_session.add(collection)

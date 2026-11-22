@@ -46,9 +46,41 @@ SQLITE_INTEGRITY_TRIGGERS = (
     WHEN NOT EXISTS (
         SELECT 1
         FROM users u
-        JOIN ecopoints e ON e.university_id = u.university_id
-        JOIN compartments c ON c.ecopoint_id = e.id AND c.id = NEW.compartment_id
-        WHERE u.id = NEW.recycler_id AND u.role = 'RECYCLER' AND e.id = NEW.ecopoint_id
+        JOIN ecopoints e ON e.id = NEW.ecopoint_id
+        JOIN compartments c ON c.ecopoint_id = e.id
+            AND c.id = NEW.compartment_id
+            AND c.material_id IS NEW.material_id
+        LEFT JOIN recycler_profiles rp ON rp.user_id = u.id
+        WHERE u.id = NEW.recycler_id AND u.role = 'RECYCLER' AND u.is_active = 1
+            AND (rp.user_id IS NULL OR rp.status = 'ACTIVE')
+            AND (
+                EXISTS (
+                    SELECT 1 FROM recycler_assignments ra
+                    WHERE ra.recycler_id = u.id AND ra.status = 'ACTIVE'
+                        AND datetime(ra.starts_at) <= CURRENT_TIMESTAMP
+                        AND (ra.ends_at IS NULL OR datetime(ra.ends_at) >= CURRENT_TIMESTAMP)
+                        AND (
+                            (ra.ecopoint_id = e.id OR ra.ecopoint_id IS NULL)
+                            AND ra.university_id = e.university_id
+                        )
+                        AND (
+                            (ra.origin = 'DIRECT' AND (rp.user_id IS NULL OR
+                                (rp.link_type = 'INDEPENDENT' AND rp.organization_id IS NULL)))
+                            OR (ra.origin = 'AUTOMATIC' AND rp.link_type = 'ORGANIZATION'
+                                AND ra.organization_id = rp.organization_id
+                                AND EXISTS (SELECT 1 FROM organizations o
+                                    WHERE o.id = ra.organization_id AND o.status = 'ACTIVE'))
+                        )
+                )
+                OR (
+                    (rp.user_id IS NULL OR
+                        (rp.link_type = 'INDEPENDENT' AND rp.organization_id IS NULL))
+                    AND u.university_id IS NOT NULL AND u.university_id = e.university_id
+                    AND NOT EXISTS (
+                        SELECT 1 FROM recycler_assignments ra WHERE ra.recycler_id = u.id
+                    )
+                )
+            )
     )
     BEGIN
         SELECT RAISE(ABORT, 'collection university or resource mismatch');
@@ -56,13 +88,45 @@ SQLITE_INTEGRITY_TRIGGERS = (
     """,
     """
     CREATE TRIGGER IF NOT EXISTS trg_collections_university_update
-    BEFORE UPDATE OF recycler_id, ecopoint_id, compartment_id ON collections
+    BEFORE UPDATE OF recycler_id, ecopoint_id, compartment_id, material_id ON collections
     WHEN NOT EXISTS (
         SELECT 1
         FROM users u
-        JOIN ecopoints e ON e.university_id = u.university_id
-        JOIN compartments c ON c.ecopoint_id = e.id AND c.id = NEW.compartment_id
-        WHERE u.id = NEW.recycler_id AND u.role = 'RECYCLER' AND e.id = NEW.ecopoint_id
+        JOIN ecopoints e ON e.id = NEW.ecopoint_id
+        JOIN compartments c ON c.ecopoint_id = e.id
+            AND c.id = NEW.compartment_id
+            AND c.material_id IS NEW.material_id
+        LEFT JOIN recycler_profiles rp ON rp.user_id = u.id
+        WHERE u.id = NEW.recycler_id AND u.role = 'RECYCLER' AND u.is_active = 1
+            AND (rp.user_id IS NULL OR rp.status = 'ACTIVE')
+            AND (
+                EXISTS (
+                    SELECT 1 FROM recycler_assignments ra
+                    WHERE ra.recycler_id = u.id AND ra.status = 'ACTIVE'
+                        AND datetime(ra.starts_at) <= CURRENT_TIMESTAMP
+                        AND (ra.ends_at IS NULL OR datetime(ra.ends_at) >= CURRENT_TIMESTAMP)
+                        AND (
+                            (ra.ecopoint_id = e.id OR ra.ecopoint_id IS NULL)
+                            AND ra.university_id = e.university_id
+                        )
+                        AND (
+                            (ra.origin = 'DIRECT' AND (rp.user_id IS NULL OR
+                                (rp.link_type = 'INDEPENDENT' AND rp.organization_id IS NULL)))
+                            OR (ra.origin = 'AUTOMATIC' AND rp.link_type = 'ORGANIZATION'
+                                AND ra.organization_id = rp.organization_id
+                                AND EXISTS (SELECT 1 FROM organizations o
+                                    WHERE o.id = ra.organization_id AND o.status = 'ACTIVE'))
+                        )
+                )
+                OR (
+                    (rp.user_id IS NULL OR
+                        (rp.link_type = 'INDEPENDENT' AND rp.organization_id IS NULL))
+                    AND u.university_id IS NOT NULL AND u.university_id = e.university_id
+                    AND NOT EXISTS (
+                        SELECT 1 FROM recycler_assignments ra WHERE ra.recycler_id = u.id
+                    )
+                )
+            )
     )
     BEGIN
         SELECT RAISE(ABORT, 'collection university or resource mismatch');
@@ -152,9 +216,12 @@ def install_sqlite_integrity_triggers(engine: Engine) -> None:
     if engine.dialect.name != "sqlite":
         return
     with engine.begin() as connection:
-        # These two triggers changed to accept null material IDs only when the
-        # compartment itself is the no-points, unidentified-material compartment.
+        # Refresh deposit and collection guards so existing databases receive the
+        # current resource and authorization checks on application startup.
         connection.exec_driver_sql("DROP TRIGGER IF EXISTS trg_deposits_university_insert")
         connection.exec_driver_sql("DROP TRIGGER IF EXISTS trg_deposits_university_update")
+        # Refresh collection guards when their authorization/material rules change.
+        connection.exec_driver_sql("DROP TRIGGER IF EXISTS trg_collections_university_insert")
+        connection.exec_driver_sql("DROP TRIGGER IF EXISTS trg_collections_university_update")
         for statement in SQLITE_INTEGRITY_TRIGGERS:
             connection.exec_driver_sql(statement)

@@ -4,15 +4,24 @@ from app.models.entities import (
     AlertType,
     Collection,
     CollectionStatus,
+    AssignmentStatus,
+    CoverageSector,
     Compartment,
     Deposit,
     EcoPoint,
     Material,
+    Organization,
+    OrganizationStatus,
+    OrganizationType,
     PointTransaction,
+    RecyclerAssignment,
+    RecyclerLinkType,
+    RecyclerProfileStatus,
+    RecyclerProfile,
     TransactionType,
     User,
     UserRole,
     University,
 )
 
-__all__ = ["Alert", "AlertStatus", "AlertType", "Collection", "CollectionStatus", "Compartment", "Deposit", "EcoPoint", "Material", "PointTransaction", "TransactionType", "User", "UserRole", "University"]
+__all__ = ["Alert", "AlertStatus", "AlertType", "AssignmentStatus", "Collection", "CollectionStatus", "Compartment", "CoverageSector", "Deposit", "EcoPoint", "Material", "Organization", "OrganizationStatus", "OrganizationType", "PointTransaction", "RecyclerAssignment", "RecyclerLinkType", "RecyclerProfile", "RecyclerProfileStatus", "TransactionType", "User", "UserRole", "University"]
