@@ -48,7 +48,7 @@ function detailMessage(detail: unknown): string {
   return 'No fue posible completar la solicitud.'
 }
 
-async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH', options: RequestOptions = {}): Promise<T> {
+async function request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', options: RequestOptions = {}): Promise<T> {
   const headers = new Headers({ Accept: 'application/json' })
   if (options.body !== undefined) headers.set('Content-Type', 'application/json')
   if (options.token) headers.set('Authorization', `Bearer ${options.token}`)
@@ -92,6 +92,14 @@ export function apiGet<T>(path: string, token?: string, signal?: AbortSignal): P
 
 export function apiPost<T, TBody>(path: string, body: TBody, token?: string, signal?: AbortSignal): Promise<T> {
   return request<T>(path, 'POST', { body, token, signal })
+}
+
+export function apiPut<T, TBody>(path: string, body: TBody, token?: string, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, 'PUT', { body, token, signal })
+}
+
+export function apiDelete<T>(path: string, token?: string): Promise<T> {
+  return request<T>(path, 'DELETE', { token })
 }
 
 export function apiPatch<T, TBody>(path: string, body: TBody, token?: string, signal?: AbortSignal): Promise<T> {

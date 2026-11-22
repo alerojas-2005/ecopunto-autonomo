@@ -6,12 +6,14 @@ import { AdminCatalog } from './components/AdminCatalog'
 import { AdminDeposits } from './components/AdminDeposits'
 import { AdminManagement } from './components/AdminManagement'
 import { AdminOverview } from './components/AdminOverview'
+import { AdminRecyclers } from './components/AdminRecyclers'
+import { RecyclerHome } from './components/RecyclerHome'
 import { CitizenDashboard } from './components/CitizenDashboard'
 import { CitizenPoints } from './components/CitizenPoints'
 import { DepositForm } from './components/DepositForm'
 import { DepositHistory } from './components/DepositHistory'
 import { Icon, type IconName } from './components/Icon'
-import { OperationsWorkspace, RecyclerOverview } from './components/OperationsWorkspace'
+import { OperationsWorkspace } from './components/OperationsWorkspace'
 import { SimulationPage } from './simulation/components/SimulationPage'
 import { NavItem } from './components/UI'
 import './auth/Session.css'
@@ -24,6 +26,7 @@ type View =
   | 'Historial'
   | 'Gestión de EcoPuntos'
   | 'Universidades y usuarios'
+  | 'Recicladores y organizaciones'
   | 'Depósitos'
   | 'Alertas y recolecciones'
   | 'Simulación EcoPunto'
@@ -40,6 +43,7 @@ const citizenNavigation: NavigationItem[] = [
 const adminNavigation: NavigationItem[] = [
   { label: 'Inicio', icon: 'home' },
   { label: 'Universidades y usuarios', icon: 'users' },
+  { label: 'Recicladores y organizaciones', icon: 'truck' },
   { label: 'Gestión de EcoPuntos', icon: 'bins' },
   { label: 'Depósitos', icon: 'drop' },
   { label: 'Alertas y recolecciones', icon: 'bell' },
@@ -80,7 +84,7 @@ function App() {
         <div className="page-heading"><div><span className="eyebrow">{role === 'CITIZEN' ? 'TU IMPACTO, DÍA A DÍA' : role === 'ADMIN' ? 'CENTRO DE OPERACIONES' : 'OPERACIÓN INSTITUCIONAL'}</span><h1>{view === 'Inicio' ? `${role === 'CITIZEN' ? '¡Hola' : 'Hola'}, ${firstName}!` : view}</h1><p>{pageDescription(view, role)}</p></div><div className="role-badge"><span className="online-dot"/>{roleLabel(role)}</div></div>
         {view === 'Inicio' && role === 'CITIZEN' && <CitizenDashboard onNavigate={navigate} />}
         {view === 'Inicio' && role === 'ADMIN' && <AdminOverview onNavigate={navigate} />}
-        {view === 'Inicio' && role === 'RECYCLER' && <RecyclerOverview onNavigate={() => navigate('Alertas y recolecciones')} />}
+        {view === 'Inicio' && role === 'RECYCLER' && <RecyclerHome onNavigate={() => navigate('Alertas y recolecciones')} />}
         {view !== 'Inicio' && <Subpage view={view} role={role} />}
         <footer className="page-footer"><span>EcoPunto <span className="footer-dot">·</span> Construyendo un futuro circular</span><span>Plataforma multiuniversidad</span></footer>
       </div>
@@ -113,6 +117,7 @@ function pageDescription(view: View, role: UserRole) {
     Historial: 'Consulta tus depósitos e historial de puntos.',
     'Gestión de EcoPuntos': 'Administra puntos, materiales y compartimentos.',
     'Universidades y usuarios': 'Administra globalmente instituciones y cuentas.',
+    'Recicladores y organizaciones': 'Administra organizaciones, perfiles y sectores de cobertura.',
     Depósitos: 'Consulta y filtra depósitos de todas las universidades.',
     'Alertas y recolecciones': 'Consulta alertas y recolecciones permitidas para tu rol.',
     'Simulación EcoPunto': 'Explora el funcionamiento de la máquina EcoPunto y conoce cómo se clasifican los residuos.',
@@ -128,6 +133,7 @@ function Subpage({ view, role }: { view: View; role: UserRole }) {
   if (view === 'Gestión de EcoPuntos' && role === 'ADMIN') return <AdminCatalog />
   if (view === 'Depósitos' && role === 'ADMIN') return <AdminDeposits />
   if (view === 'Universidades y usuarios' && role === 'ADMIN') return <AdminManagement />
+  if (view === 'Recicladores y organizaciones' && role === 'ADMIN') return <AdminRecyclers />
   if (view === 'Alertas y recolecciones' && (role === 'ADMIN' || role === 'RECYCLER')) return <OperationsWorkspace role={role} />
   return <section className="panel" role="alert">No tienes permisos para abrir esta pantalla.</section>
 }

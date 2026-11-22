@@ -72,6 +72,7 @@ export type ApiDecimal = string
 
 export interface EcoPointSummary {
   id: string
+  university_id: string
   code: string
   name: string
   address: string
@@ -180,6 +181,7 @@ export interface CollectionCreate {
 export interface CollectionSummary extends CollectionCreate {
   id: string
   recycler_id: string
+  material_id?: string | null
   status: string
   created_at: string
   notes: string | null

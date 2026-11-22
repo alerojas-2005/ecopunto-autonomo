@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { ApiError } from '../api/client'
 import { getEcoPointCompartments, getEcoPoints } from '../api/catalog'
 import { createCollection, getAlerts, getCollections, resolveAlert } from '../api/operations'
+import { getAssignments, type Assignment } from '../api/recyclers'
 import type { AlertSummary, CollectionSummary, CompartmentSummary, EcoPointSummary } from '../api/types'
 import { useAuth } from '../auth/useAuth'
 import { Icon } from './Icon'
@@ -93,14 +94,14 @@ export function OperationsWorkspace({ role }: { role: 'ADMIN' | 'RECYCLER' }) {
 
 export function RecyclerOverview({ onNavigate }: { onNavigate: () => void }) {
   const { session, logout } = useAuth()
-  const [summary, setSummary] = useState<{ points: EcoPointSummary[]; alerts: AlertSummary[]; collections: CollectionSummary[] } | null>(null)
+  const [summary, setSummary] = useState<{ points: EcoPointSummary[]; alerts: AlertSummary[]; collections: CollectionSummary[]; assignments: Assignment[] } | null>(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     if (!session?.token) return
     const controller = new AbortController()
-    void Promise.all([getEcoPoints(session.token, controller.signal), getAlerts(session.token, controller.signal), getCollections(session.token, controller.signal)])
-      .then(([points, alerts, collections]) => setSummary({ points, alerts, collections }))
+    void Promise.all([getEcoPoints(session.token, controller.signal), getAlerts(session.token, controller.signal), getCollections(session.token, controller.signal), getAssignments(session.token, controller.signal)])
+      .then(([points, alerts, collections, assignments]) => setSummary({ points, alerts, collections, assignments }))
       .catch((reason: unknown) => { if (!controller.signal.aborted) { if (reason instanceof ApiError && reason.isUnauthorized) logout(); else setError(apiMessage(reason)) } })
     return () => controller.abort()
   }, [session?.token, logout, attempt])
