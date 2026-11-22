@@ -1,0 +1,274 @@
+
+.simulation-page {
+  display: grid;
+  gap: 22px;
+}
+
+.simulation-intro h2 {
+  color: #263d2e;
+  font-size: 24px;
+  margin: 0 0 7px;
+}
+
+.simulation-intro p,
+.simulation-video-section > p {
+  color: #7d8b80;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.simulation-eyebrow {
+  display: block;
+  color: #62916b;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  margin-bottom: 9px;
+}
+
+.simulation-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 290px;
+  gap: 18px;
+  align-items: stretch;
+}
+
+.simulation-viewer,
+.simulation-info,
+.simulation-video-section {
+  background: #fff;
+  border: 1px solid #e6ece6;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.viewer-label {
+  padding: 16px 19px;
+  color: #718075;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  border-bottom: 1px solid #edf1ed;
+}
+
+.simulation-canvas {
+  width: 100%;
+  height: 560px;
+  min-height: 350px;
+  overflow: hidden;
+  background: #eaf0e9;
+}
+
+.simulation-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.viewer-help {
+  padding: 12px 18px;
+  color: #829087;
+  font-size: 10px;
+  border-top: 1px solid #edf1ed;
+}
+
+.simulation-info {
+  padding: 22px 19px;
+}
+
+.simulation-info h3,
+.simulation-video-section h3 {
+  color: #304638;
+  font-size: 17px;
+  margin: 0 0 18px;
+}
+
+.simulation-field-label {
+  display: block;
+  color: #52665a;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.simulation-select {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #dce6dc;
+  border-radius: 9px;
+  background: #fff;
+  color: #304638;
+  font-size: 13px;
+  outline-color: #38804c;
+}
+
+.simulation-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.simulation-reward-preview {
+  display: grid;
+  gap: 5px;
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 10px;
+  background: #f1f7f0;
+}
+
+.simulation-reward-preview span,
+.simulation-session span {
+  color: #7b8c7f;
+  font-size: 10px;
+}
+
+.simulation-reward-preview strong {
+  color: #28794b;
+  font-size: 19px;
+}
+
+.simulation-start-button {
+  width: 100%;
+  border: 0;
+  border-radius: 9px;
+  padding: 13px 16px;
+  margin-top: 14px;
+  background: #28794b;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.2s;
+}
+
+.simulation-start-button:hover:not(:disabled) {
+  background: #1d6039;
+  transform: translateY(-1px);
+}
+
+.simulation-start-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.simulation-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 16px;
+  color: #68796d;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.status-dot {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  margin-top: 3px;
+  border-radius: 50%;
+  background: #91a397;
+}
+
+.status-dot.active {
+  background: #e6a33b;
+  box-shadow: 0 0 0 4px #fff2d9;
+  animation: status-pulse 1s infinite;
+}
+
+@keyframes status-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.simulation-success {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  margin-top: 14px;
+  border: 1px solid #d4ead5;
+  border-radius: 10px;
+  background: #f0f8ef;
+}
+
+.simulation-success strong {
+  color: #28794b;
+  font-size: 12px;
+}
+
+.simulation-success span {
+  color: #28794b;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.simulation-session {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.simulation-session > div {
+  display: grid;
+  gap: 5px;
+  padding: 12px 9px;
+  border: 1px solid #edf1ed;
+  border-radius: 9px;
+}
+
+.simulation-session strong {
+  color: #304638;
+  font-size: 18px;
+}
+
+.simulation-notice {
+  padding: 12px;
+  margin-top: 16px;
+  border-radius: 9px;
+  background: #f3f7f1;
+  color: #728276;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.simulation-video-section {
+  padding: 22px;
+}
+
+.simulation-video-section h3 {
+  margin-bottom: 8px;
+}
+
+.simulation-video {
+  display: block;
+  width: 100%;
+  max-height: 600px;
+  aspect-ratio: 16 / 9;
+  margin-top: 18px;
+  border-radius: 10px;
+  background: #17251c;
+  object-fit: contain;
+}
+
+@media (max-width: 950px) {
+  .simulation-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-canvas {
+    height: 480px;
+  }
+}
+
+@media (max-width: 600px) {
+  .simulation-canvas {
+    height: 380px;
+  }
+
+  .simulation-video-section {
+    padding: 16px;
+  }
+}

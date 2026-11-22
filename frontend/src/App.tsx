@@ -12,11 +12,21 @@ import { DepositForm } from './components/DepositForm'
 import { DepositHistory } from './components/DepositHistory'
 import { Icon, type IconName } from './components/Icon'
 import { OperationsWorkspace, RecyclerOverview } from './components/OperationsWorkspace'
+import { SimulationPage } from './simulation/components/SimulationPage'
 import { NavItem } from './components/UI'
 import './auth/Session.css'
 import './App.css'
 
-type View = 'Inicio' | 'Registrar depósito' | 'Mis EcoPuntos' | 'Historial' | 'Gestión de EcoPuntos' | 'Universidades y usuarios' | 'Depósitos' | 'Alertas y recolecciones'
+type View =
+  | 'Inicio'
+  | 'Registrar depósito'
+  | 'Mis EcoPuntos'
+  | 'Historial'
+  | 'Gestión de EcoPuntos'
+  | 'Universidades y usuarios'
+  | 'Depósitos'
+  | 'Alertas y recolecciones'
+  | 'Simulación EcoPunto'
 type NavigationItem = { label: View; icon: IconName }
 
 const citizenNavigation: NavigationItem[] = [
@@ -24,17 +34,22 @@ const citizenNavigation: NavigationItem[] = [
   { label: 'Registrar depósito', icon: 'drop' },
   { label: 'Mis EcoPuntos', icon: 'points' },
   { label: 'Historial', icon: 'history' },
+  { label: 'Simulación EcoPunto', icon: 'recycle' },
 ]
+
 const adminNavigation: NavigationItem[] = [
   { label: 'Inicio', icon: 'home' },
   { label: 'Universidades y usuarios', icon: 'users' },
   { label: 'Gestión de EcoPuntos', icon: 'bins' },
   { label: 'Depósitos', icon: 'drop' },
   { label: 'Alertas y recolecciones', icon: 'bell' },
+  { label: 'Simulación EcoPunto', icon: 'recycle' },
 ]
+
 const recyclerNavigation: NavigationItem[] = [
   { label: 'Inicio', icon: 'home' },
   { label: 'Alertas y recolecciones', icon: 'bell' },
+  { label: 'Simulación EcoPunto', icon: 'recycle' },
 ]
 
 function App() {
@@ -100,11 +115,13 @@ function pageDescription(view: View, role: UserRole) {
     'Universidades y usuarios': 'Administra globalmente instituciones y cuentas.',
     Depósitos: 'Consulta y filtra depósitos de todas las universidades.',
     'Alertas y recolecciones': 'Consulta alertas y recolecciones permitidas para tu rol.',
+    'Simulación EcoPunto': 'Explora el funcionamiento de la máquina EcoPunto y conoce cómo se clasifican los residuos.',
   }
   return descriptions[view]
 }
 
 function Subpage({ view, role }: { view: View; role: UserRole }) {
+  if (view === 'Simulación EcoPunto') return <SimulationPage />
   if (view === 'Registrar depósito' && role === 'CITIZEN') return <DepositForm />
   if (view === 'Mis EcoPuntos' && role === 'CITIZEN') return <CitizenPoints />
   if (view === 'Historial' && role === 'CITIZEN') return <DepositHistory />
