@@ -5,9 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.dependencies import get_current_user, require_roles
-from app.models import Alert, AlertStatus, Collection, User, UserRole
-from app.repositories.operations import get_or_404, list_alerts, visible_collections
+from app.dependencies import require_roles
+from app.models import Alert, AlertStatus, User, UserRole
+from app.repositories.operations import (
+    list_alerts, visible_alert, visible_collection, visible_collections,
+)
 from app.schemas.api import AlertRead, CollectionCreate, CollectionRead
 from app.services.collections import register_collection
 
@@ -18,13 +20,15 @@ recycler_only = require_roles(UserRole.RECYCLER)
 
 
 @router.get("/alerts", response_model=list[AlertRead])
-def get_alerts(_user: User = Depends(staff_only), db: Session = Depends(get_db)):
-    return list_alerts(db)
+def get_alerts(user: User = Depends(staff_only), db: Session = Depends(get_db)):
+    return list_alerts(db, user)
 
 
 @router.patch("/alerts/{alert_id}/resolve", response_model=AlertRead)
-def resolve_alert(alert_id: UUID, _user: User = Depends(staff_only), db: Session = Depends(get_db)):
-    alert = get_or_404(db, Alert, alert_id, "Alerta")
+def resolve_alert(alert_id: UUID, user: User = Depends(staff_only), db: Session = Depends(get_db)):
+    alert = visible_alert(db, alert_id, user)
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Alerta no encontrada")
     if alert.status == AlertStatus.ACTIVE:
         alert.status = AlertStatus.RESOLVED
         alert.resolved_at = datetime.now(UTC)
@@ -44,8 +48,8 @@ def get_collections(user: User = Depends(staff_only), db: Session = Depends(get_
 
 
 @router.get("/collections/{collection_id}", response_model=CollectionRead)
-def get_collection(collection_id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    collection = get_or_404(db, Collection, collection_id, "Recolección")
-    if user.role == UserRole.CITIZEN or (user.role == UserRole.RECYCLER and collection.recycler_id != user.id):
+def get_collection(collection_id: UUID, user: User = Depends(staff_only), db: Session = Depends(get_db)):
+    collection = visible_collection(db, collection_id, user)
+    if collection is None:
         raise HTTPException(status_code=404, detail="Recolección no encontrada")
     return collection

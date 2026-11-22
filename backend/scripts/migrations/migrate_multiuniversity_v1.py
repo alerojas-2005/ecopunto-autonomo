@@ -185,7 +185,7 @@ def migrate_database(database_path: Path) -> dict[str, object]:
                     created_at DATETIME NOT NULL,
                     CONSTRAINT ck_user_role_university CHECK (
                         (role = 'ADMIN' AND university_id IS NULL) OR
-                        (role IN ('CITIZEN', 'RECYCLER', 'UNIVERSITY_ADMIN') AND university_id IS NOT NULL)
+                        (role IN ('CITIZEN', 'RECYCLER') AND university_id IS NOT NULL)
                     ),
                     CONSTRAINT uq_user_id_university UNIQUE (id, university_id),
                     FOREIGN KEY(university_id) REFERENCES universities(id) ON DELETE RESTRICT

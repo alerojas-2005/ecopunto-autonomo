@@ -7,8 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.dependencies import get_current_user, require_roles
-from app.models import Compartment, EcoPoint, Material, User, UserRole
-from app.repositories.operations import get_or_404, list_ecopoints, list_materials
+from app.models import Compartment, EcoPoint, Material, University, User, UserRole
+from app.repositories.operations import (
+    get_or_404, list_materials, visible_compartment, visible_ecopoint, visible_ecopoints,
+)
 from app.schemas.api import (
     CompartmentCreate,
     CompartmentRead,
@@ -23,6 +25,7 @@ from app.schemas.api import (
 
 router = APIRouter(tags=["Catálogo y EcoPuntos"])
 admin_only = require_roles(UserRole.ADMIN)
+ecopoint_manager = admin_only
 
 
 def save(db: Session) -> None:
@@ -63,21 +66,25 @@ def patch_material(material_id: UUID, payload: MaterialPatch, _admin: User = Dep
 
 @router.get("/ecopoints", response_model=list[EcoPointRead])
 def get_ecopoints(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    items = list_ecopoints(db)
-    return items if user.role == UserRole.ADMIN else [item for item in items if item.active]
+    return visible_ecopoints(db, user)
 
 
 @router.get("/ecopoints/{ecopoint_id}", response_model=EcoPointRead)
 def get_ecopoint(ecopoint_id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    item = get_or_404(db, EcoPoint, ecopoint_id, "EcoPunto")
-    if not item.active and user.role != UserRole.ADMIN:
+    item = visible_ecopoint(db, ecopoint_id, user)
+    if item is None:
         raise HTTPException(status_code=404, detail="EcoPunto no encontrado")
     return item
 
 
 @router.post("/ecopoints", response_model=EcoPointRead, status_code=status.HTTP_201_CREATED)
-def create_ecopoint(payload: EcoPointCreate, _admin: User = Depends(admin_only), db: Session = Depends(get_db)):
-    item = EcoPoint(**payload.model_dump())
+def create_ecopoint(payload: EcoPointCreate, user: User = Depends(ecopoint_manager), db: Session = Depends(get_db)):
+    if payload.university_id is None:
+        raise HTTPException(status_code=422, detail="La universidad es obligatoria")
+    university_id = payload.university_id
+    if db.get(University, university_id) is None:
+        raise HTTPException(status_code=404, detail="Universidad no encontrada")
+    item = EcoPoint(university_id=university_id, **payload.model_dump(exclude={"university_id"}))
     db.add(item)
     save(db)
     db.refresh(item)
@@ -85,8 +92,10 @@ def create_ecopoint(payload: EcoPointCreate, _admin: User = Depends(admin_only),
 
 
 @router.patch("/ecopoints/{ecopoint_id}", response_model=EcoPointRead)
-def patch_ecopoint(ecopoint_id: UUID, payload: EcoPointPatch, _admin: User = Depends(admin_only), db: Session = Depends(get_db)):
-    item = get_or_404(db, EcoPoint, ecopoint_id, "EcoPunto")
+def patch_ecopoint(ecopoint_id: UUID, payload: EcoPointPatch, user: User = Depends(ecopoint_manager), db: Session = Depends(get_db)):
+    item = visible_ecopoint(db, ecopoint_id, user)
+    if item is None:
+        raise HTTPException(status_code=404, detail="EcoPunto no encontrado")
     changes = payload.model_dump(exclude_unset=True)
     if any(value is None for value in changes.values()):
         raise HTTPException(status_code=422, detail="Los campos modificables no pueden ser null")
@@ -99,8 +108,8 @@ def patch_ecopoint(ecopoint_id: UUID, payload: EcoPointPatch, _admin: User = Dep
 
 @router.get("/ecopoints/{ecopoint_id}/compartments", response_model=list[CompartmentRead])
 def get_compartments(ecopoint_id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    ecopoint = get_or_404(db, EcoPoint, ecopoint_id, "EcoPunto")
-    if not ecopoint.active and user.role != UserRole.ADMIN:
+    ecopoint = visible_ecopoint(db, ecopoint_id, user)
+    if ecopoint is None:
         raise HTTPException(status_code=404, detail="EcoPunto no encontrado")
     query = select(Compartment).where(Compartment.ecopoint_id == ecopoint_id).order_by(Compartment.label)
     compartments = db.scalars(query).all()
@@ -108,10 +117,16 @@ def get_compartments(ecopoint_id: UUID, user: User = Depends(get_current_user), 
 
 
 @router.post("/ecopoints/{ecopoint_id}/compartments", response_model=CompartmentRead, status_code=status.HTTP_201_CREATED)
-def create_compartment(ecopoint_id: UUID, payload: CompartmentCreate, _admin: User = Depends(admin_only), db: Session = Depends(get_db)):
-    ecopoint = get_or_404(db, EcoPoint, ecopoint_id, "EcoPunto")
-    material = get_or_404(db, Material, payload.material_id, "Material")
-    if not material.active:
+def create_compartment(ecopoint_id: UUID, payload: CompartmentCreate, user: User = Depends(ecopoint_manager), db: Session = Depends(get_db)):
+    ecopoint = visible_ecopoint(db, ecopoint_id, user)
+    if ecopoint is None:
+        raise HTTPException(status_code=404, detail="EcoPunto no encontrado")
+    if payload.material_id is None and payload.label != "No identificados":
+        raise HTTPException(status_code=422, detail="Los compartimentos sin material deben llamarse No identificados")
+    material = db.get(Material, payload.material_id) if payload.material_id is not None else None
+    if payload.material_id is not None and material is None:
+        raise HTTPException(status_code=404, detail="Material no encontrado")
+    if material is not None and not material.active:
         raise HTTPException(status_code=409, detail="No se puede agregar un material inactivo")
     if payload.current_kg > payload.capacity_kg:
         raise HTTPException(status_code=422, detail="El peso actual no puede superar la capacidad")
@@ -123,8 +138,10 @@ def create_compartment(ecopoint_id: UUID, payload: CompartmentCreate, _admin: Us
 
 
 @router.patch("/compartments/{compartment_id}", response_model=CompartmentRead)
-def patch_compartment(compartment_id: UUID, payload: CompartmentPatch, _admin: User = Depends(admin_only), db: Session = Depends(get_db)):
-    compartment = get_or_404(db, Compartment, compartment_id, "Compartimento")
+def patch_compartment(compartment_id: UUID, payload: CompartmentPatch, user: User = Depends(ecopoint_manager), db: Session = Depends(get_db)):
+    compartment = visible_compartment(db, compartment_id, user)
+    if compartment is None:
+        raise HTTPException(status_code=404, detail="Compartimento no encontrado")
     changes = payload.model_dump(exclude_unset=True)
     if any(value is None for value in changes.values()):
         raise HTTPException(status_code=422, detail="Los campos modificables no pueden ser null")
