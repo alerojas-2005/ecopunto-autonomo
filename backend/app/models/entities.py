@@ -196,7 +196,7 @@ class User(Base):
     __table_args__ = (
         CheckConstraint(
             "(role = 'ADMIN' AND university_id IS NULL) OR "
-            "(role = 'CITIZEN' AND university_id IS NOT NULL) OR "
+            "(role IN ('CITIZEN', 'UNIVERSITY_ADMIN') AND university_id IS NOT NULL) OR "
             "(role = 'RECYCLER')",
             name="ck_user_role_university",
         ),
@@ -332,7 +332,11 @@ class PointTransaction(Base):
 
 class Alert(Base):
     __tablename__ = "alerts"
-    __table_args__ = (Index("uq_active_compartment_alert", "compartment_id", "type", unique=True, sqlite_where=text("status = 'ACTIVE'")),)
+    __table_args__ = (Index(
+        "uq_active_compartment_alert", "compartment_id", "type", unique=True,
+        sqlite_where=text("status = 'ACTIVE'"),
+        postgresql_where=text("status = 'ACTIVE'"),
+    ),)
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     compartment_id: Mapped[UUID] = mapped_column(ForeignKey("compartments.id", ondelete="RESTRICT"), index=True)
     type: Mapped[AlertType] = mapped_column(SAEnum(AlertType, native_enum=False, length=24))

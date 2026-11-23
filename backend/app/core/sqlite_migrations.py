@@ -8,6 +8,7 @@ from sqlalchemy.engine import Connection, Engine
 _REBUILT_TABLES = frozenset({"compartments", "deposits"})
 _DEPENDENCY_PATTERN = re.compile(r"\b(?:compartments|deposits)\b", re.IGNORECASE)
 _USER_REFERENCE_PATTERN = re.compile(r"\busers\b", re.IGNORECASE)
+_ASSIGNMENT_REFERENCE_PATTERN = re.compile(r"\brecycler_assignments\b", re.IGNORECASE)
 
 
 def _quote_identifier(identifier: str) -> str:
@@ -112,6 +113,109 @@ def _foreign_keys_referencing_table(
             if str(row[2]).lower() == target_table.lower():
                 references.append((table, *tuple(row[1:])))
     return tuple(sorted(references, key=repr))
+
+
+def _rebuild_recycler_assignments_organization_fk(connection: Connection) -> None:
+    """Ensure organization_id references organizations with explicit RESTRICT.
+
+    SQLite cannot alter an existing FK action in place. Recreate the original
+    table DDL, changing only that action, while retaining rows, indexes, triggers
+    and all other constraints verbatim.
+    """
+    fk_rows = connection.exec_driver_sql(
+        'PRAGMA foreign_key_list("recycler_assignments")'
+    ).all()
+    organization_fks = [row for row in fk_rows if row[3] == "organization_id"]
+    if len(organization_fks) > 1:
+        raise RuntimeError("recycler_assignments tiene varias FK para organization_id; revisión manual requerida")
+    if organization_fks:
+        fk = organization_fks[0]
+        if str(fk[2]).lower() != "organizations" or str(fk[4]).lower() != "id":
+            raise RuntimeError("La FK de recycler_assignments.organization_id apunta a una tabla o columna inesperada")
+        if str(fk[6]).upper() == "RESTRICT":
+            return
+
+    original = connection.exec_driver_sql(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='recycler_assignments'"
+    ).scalar_one_or_none()
+    if original is None:
+        raise RuntimeError("No se encontró recycler_assignments para corregir su FK")
+    if "recycler_assignments__new" in _table_names(connection):
+        raise RuntimeError("Existe recycler_assignments__new; revisión manual requerida")
+
+    create_prefix = re.match(
+        r'(?is)^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?'
+        r'(?:"recycler_assignments"|`recycler_assignments`|\[recycler_assignments\]|recycler_assignments)\b',
+        original,
+    )
+    if create_prefix is None:
+        raise RuntimeError("No se pudo identificar la definición de recycler_assignments")
+    replacement = "CREATE TABLE recycler_assignments__new" + original[create_prefix.end():]
+    reference_pattern = re.compile(
+        r'(?is)(REFERENCES\s+(?:"organizations"|`organizations`|\[organizations\]|organizations)'
+        r'\s*\(\s*(?:"id"|`id`|\[id\]|id)\s*\))'
+        r'(\s+ON\s+DELETE\s+(?:NO\s+ACTION|RESTRICT|CASCADE|SET\s+NULL|SET\s+DEFAULT))?'
+    )
+    replacement, substitutions = reference_pattern.subn(r"\1 ON DELETE RESTRICT", replacement)
+    if substitutions != 1:
+        raise RuntimeError(
+            "No se encontró exactamente una FK recycler_assignments.organization_id → organizations.id"
+        )
+
+    names = [str(row[1]) for row in connection.exec_driver_sql('PRAGMA table_info("recycler_assignments")')]
+    rows_before = _table_rows(connection, "recycler_assignments")
+    indexes_before = _index_signature(connection, "recycler_assignments")
+    foreign_keys_before = _foreign_key_signature(connection, "recycler_assignments")
+    all_triggers_before = _trigger_definitions(connection)
+    dependent_triggers = {
+        name: definition for name, definition in all_triggers_before.items()
+        if definition[0].lower() == "recycler_assignments"
+        or _ASSIGNMENT_REFERENCE_PATTERN.search(definition[1])
+    }
+    indexes_sql = connection.exec_driver_sql(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='recycler_assignments' AND sql IS NOT NULL"
+    ).scalars().all()
+    for trigger_name in dependent_triggers:
+        connection.exec_driver_sql(f"DROP TRIGGER {_quote_identifier(trigger_name)}")
+
+    connection.exec_driver_sql(replacement)
+    quoted_names = ", ".join(_quote_identifier(name) for name in names)
+    connection.exec_driver_sql(
+        f"INSERT INTO recycler_assignments__new ({quoted_names}) "
+        f"SELECT {quoted_names} FROM recycler_assignments"
+    )
+    connection.exec_driver_sql("DROP TABLE recycler_assignments")
+    connection.exec_driver_sql("ALTER TABLE recycler_assignments__new RENAME TO recycler_assignments")
+    for statement in indexes_sql:
+        connection.exec_driver_sql(statement)
+    for _trigger_name, (_table_name, definition) in dependent_triggers.items():
+        connection.exec_driver_sql(definition)
+
+    rows_after = _table_rows(connection, "recycler_assignments")
+    indexes_after = _index_signature(connection, "recycler_assignments")
+    foreign_keys_after = _foreign_key_signature(connection, "recycler_assignments")
+    triggers_after = _trigger_definitions(connection)
+    if rows_before != rows_after:
+        raise RuntimeError("La migración no preservó las filas de recycler_assignments")
+    if indexes_before != indexes_after:
+        raise RuntimeError("La migración no preservó los índices de recycler_assignments")
+    if foreign_keys_before != foreign_keys_after:
+        # Exactly one action may change: the organization_id FK to RESTRICT.
+        before_without_action = tuple(sorted((
+            tuple("RESTRICT" if index == 5 and row[1:4] == ("organizations", "organization_id", "id") else value
+                  for index, value in enumerate(row))
+            for row in foreign_keys_before
+        ), key=repr))
+        if before_without_action != foreign_keys_after:
+            raise RuntimeError("La migración modificó claves foráneas distintas a la acción de organization_id")
+    if all_triggers_before != triggers_after:
+        raise RuntimeError("La migración no restauró las definiciones originales de triggers")
+    expected = [row for row in connection.exec_driver_sql('PRAGMA foreign_key_list("recycler_assignments")') if row[3] == "organization_id"]
+    if len(expected) != 1 or str(expected[0][6]).upper() != "RESTRICT":
+        raise RuntimeError("La FK de recycler_assignments.organization_id no quedó con ON DELETE RESTRICT")
+    violations = connection.exec_driver_sql("PRAGMA foreign_key_check").all()
+    if violations:
+        raise RuntimeError(f"La reconstrucción dejó claves foráneas inválidas: {violations[:5]}")
 
 
 def _table_counts(connection: Connection, tables: set[str]) -> dict[str, int]:
@@ -313,20 +417,25 @@ def upgrade_unidentified_deposits(engine: Engine) -> bool:
             connection.close()
 
 
-def _upgrade_recycler_module_columns(connection: Connection) -> None:
+def _upgrade_recycler_module_columns(connection: Connection) -> bool:
+    changed = False
     tables = _table_names(connection)
     if "recycler_profiles" in tables:
         profile_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info("recycler_profiles")')}
         if "link_type" not in profile_columns:
             connection.exec_driver_sql("ALTER TABLE recycler_profiles ADD COLUMN link_type VARCHAR(12) NOT NULL DEFAULT 'INDEPENDENT'")
+            changed = True
             if "organization_id" in profile_columns:
                 connection.exec_driver_sql("UPDATE recycler_profiles SET link_type='ORGANIZATION' WHERE organization_id IS NOT NULL")
         if "document_type" not in profile_columns:
             connection.exec_driver_sql("ALTER TABLE recycler_profiles ADD COLUMN document_type VARCHAR(20)")
+            changed = True
         if "document_number" not in profile_columns:
             connection.exec_driver_sql("ALTER TABLE recycler_profiles ADD COLUMN document_number VARCHAR(40)")
+            changed = True
         if "status" not in profile_columns:
             connection.exec_driver_sql("ALTER TABLE recycler_profiles ADD COLUMN status VARCHAR(12) NOT NULL DEFAULT 'ACTIVE'")
+            changed = True
         connection.exec_driver_sql(
             "CREATE INDEX IF NOT EXISTS ix_recycler_profiles_organization_id "
             "ON recycler_profiles(organization_id)"
@@ -338,13 +447,17 @@ def _upgrade_recycler_module_columns(connection: Connection) -> None:
         assignment_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info("recycler_assignments")')}
         if "organization_id" not in assignment_columns:
             connection.exec_driver_sql("ALTER TABLE recycler_assignments ADD COLUMN organization_id CHAR(32) REFERENCES organizations(id) ON DELETE RESTRICT")
+            changed = True
         if "origin" not in assignment_columns:
             connection.exec_driver_sql("ALTER TABLE recycler_assignments ADD COLUMN origin VARCHAR(12) NOT NULL DEFAULT 'DIRECT'")
+            changed = True
         assignment_foreign_keys = connection.exec_driver_sql(
             'PRAGMA foreign_key_list("recycler_assignments")'
         ).all()
-        if not any(row[3] == "organization_id" and row[2] == "organizations" and row[4] == "id"
-                   for row in assignment_foreign_keys):
+        organization_fks = [row for row in assignment_foreign_keys if row[3] == "organization_id"]
+        if not organization_fks:
+            raise RuntimeError("recycler_assignments.organization_id existe sin la FK esperada; revisión manual requerida")
+        if any(row[2] != "organizations" or row[4] != "id" for row in organization_fks):
             raise RuntimeError(
                 "recycler_assignments.organization_id existe sin la FK esperada; revisión manual requerida"
             )
@@ -356,10 +469,14 @@ def _upgrade_recycler_module_columns(connection: Connection) -> None:
             "CREATE INDEX IF NOT EXISTS ix_recycler_assignments_origin "
             "ON recycler_assignments(origin)"
         )
+        if str(organization_fks[0][6]).upper() != "RESTRICT":
+            _rebuild_recycler_assignments_organization_fk(connection)
+            changed = True
     if "collections" in tables:
         collection_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info("collections")')}
         if "material_id" not in collection_columns:
             connection.exec_driver_sql("ALTER TABLE collections ADD COLUMN material_id CHAR(32) REFERENCES materials(id) ON DELETE RESTRICT")
+            changed = True
         collection_foreign_keys = connection.exec_driver_sql(
             'PRAGMA foreign_key_list("collections")'
         ).all()
@@ -371,6 +488,7 @@ def _upgrade_recycler_module_columns(connection: Connection) -> None:
         connection.exec_driver_sql(
             "CREATE INDEX IF NOT EXISTS ix_collections_material_id ON collections(material_id)"
         )
+    return changed
 
 
 def upgrade_recycler_university_optional(engine: Engine) -> bool:
@@ -414,9 +532,9 @@ def upgrade_recycler_university_optional(engine: Engine) -> bool:
                 # in either form RECYCLER must be independently nullable.
                 current_recycler_clause = "(role = 'RECYCLER')"
                 if current_recycler_clause in original:
-                    _upgrade_recycler_module_columns(connection)
+                    module_changed = _upgrade_recycler_module_columns(connection)
                     connection.exec_driver_sql("COMMIT")
-                    return False
+                    return module_changed
                 raise RuntimeError("Restricción de users desconocida; revisión manual requerida")
             old_clause, new_clause = matched_clause
             columns = connection.exec_driver_sql('PRAGMA table_info("users")').all()

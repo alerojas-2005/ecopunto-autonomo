@@ -231,6 +231,7 @@ def test_recycler_university_upgrade_preserves_users_passwords_and_relations():
         connection.exec_driver_sql("CREATE INDEX ix_recycler_profiles_organization_id ON recycler_profiles(organization_id)")
         connection.exec_driver_sql("""CREATE TABLE recycler_assignments (
             id CHAR(32) PRIMARY KEY, recycler_id CHAR(32) NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            organization_id CHAR(32) REFERENCES organizations(id),
             sector_id CHAR(32) REFERENCES coverage_sectors(id) ON DELETE RESTRICT,
             university_id CHAR(32) REFERENCES universities(id) ON DELETE RESTRICT,
             ecopoint_id CHAR(32) REFERENCES ecopoints(id) ON DELETE RESTRICT,
@@ -277,10 +278,15 @@ def test_recycler_university_upgrade_preserves_users_passwords_and_relations():
         connection.exec_driver_sql("INSERT INTO organizations VALUES ('org1')")
         connection.exec_driver_sql("INSERT INTO recycler_profiles VALUES ('r1','org1','555','2026-01-01')")
         connection.exec_driver_sql("INSERT INTO recycler_profiles VALUES ('r3',NULL,'555','2026-01-01')")
-        connection.exec_driver_sql("INSERT INTO recycler_assignments VALUES ('a1','r1',NULL,'u1',NULL,'2026-01-01',NULL,'ACTIVE','legacy')")
+        connection.exec_driver_sql("INSERT INTO recycler_assignments (id,recycler_id,organization_id,sector_id,university_id,ecopoint_id,starts_at,ends_at,status,notes) VALUES ('a1','r1','org1',NULL,'u1',NULL,'2026-01-01',NULL,'ACTIVE','legacy')")
         connection.exec_driver_sql("INSERT INTO collections VALUES ('c1','r1','e1','cpt1',1,'COMPLETED','2026-01-01',NULL)")
     with engine.connect() as connection:
         triggers_before = _trigger_map(connection)
+        old_organization_fk = next(
+            row for row in connection.exec_driver_sql('PRAGMA foreign_key_list("recycler_assignments")')
+            if row[3] == "organization_id"
+        )
+        assert old_organization_fk[6] == "NO ACTION"
         assert "trg_deposits_university_insert" in triggers_before
         assert "trg_deposits_university_update" in triggers_before
         assert "trg_collections_university_insert" in triggers_before
@@ -306,7 +312,10 @@ def test_recycler_university_upgrade_preserves_users_passwords_and_relations():
             ('r1', 'org1', 'ORGANIZATION', None, None, 'ACTIVE'),
             ('r3', None, 'INDEPENDENT', None, None, 'ACTIVE'),
         ]
-        assert tuple(connection.exec_driver_sql("SELECT id,origin,organization_id FROM recycler_assignments").one()) == ('a1','DIRECT',None)
+        assert tuple(connection.exec_driver_sql("SELECT id,origin,organization_id FROM recycler_assignments").one()) == ('a1','DIRECT','org1')
+        assignment_org_fk = next(row for row in connection.exec_driver_sql('PRAGMA foreign_key_list("recycler_assignments")') if row[3] == "organization_id")
+        assert assignment_org_fk[2:5] == ('organizations', 'organization_id', 'id')
+        assert assignment_org_fk[6] == "RESTRICT"
         assert connection.exec_driver_sql("SELECT id,material_id FROM collections").one() == ('c1', None)
         assert {table: connection.exec_driver_sql(f'SELECT COUNT(*) FROM "{table}"').scalar_one() for table in
                 ('users', 'organizations', 'ecopoints', 'compartments', 'deposits',
@@ -345,6 +354,23 @@ def test_recycler_university_upgrade_preserves_users_passwords_and_relations():
         assert connection.exec_driver_sql("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").scalar_one().find(
             "role = 'RECYCLER'"
         ) >= 0
+    # Without deferral, SQLite rejects the parent DELETE immediately for RESTRICT.
+    with engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one() == 1
+            with pytest.raises(IntegrityError, match="FOREIGN KEY constraint failed"):
+                connection.exec_driver_sql("DELETE FROM organizations WHERE id='org1'")
+            assert connection.exec_driver_sql("SELECT id FROM organizations WHERE id='org1'").scalar_one() == "org1"
+            assert connection.exec_driver_sql("SELECT organization_id FROM recycler_profiles WHERE user_id='r1'").scalar_one() == "org1"
+            assert connection.exec_driver_sql("SELECT organization_id FROM recycler_assignments WHERE id='a1'").scalar_one() == "org1"
+        finally:
+            if connection.in_transaction():
+                connection.rollback()
+    with engine.connect() as connection:
+        assert connection.exec_driver_sql("SELECT id FROM organizations WHERE id='org1'").scalar_one() == "org1"
+        assert connection.exec_driver_sql("SELECT organization_id FROM recycler_profiles WHERE user_id='r1'").scalar_one() == "org1"
+        assert connection.exec_driver_sql("SELECT organization_id FROM recycler_assignments WHERE id='a1'").scalar_one() == "org1"
     assert upgrade_recycler_university_optional(engine) is False
     with engine.connect() as connection:
         assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one() == 1
