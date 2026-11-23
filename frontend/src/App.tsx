@@ -47,13 +47,11 @@ const adminNavigation: NavigationItem[] = [
   { label: 'Gestión de EcoPuntos', icon: 'bins' },
   { label: 'Depósitos', icon: 'drop' },
   { label: 'Alertas y recolecciones', icon: 'bell' },
-  { label: 'Simulación EcoPunto', icon: 'recycle' },
 ]
 
 const recyclerNavigation: NavigationItem[] = [
   { label: 'Inicio', icon: 'home' },
   { label: 'Alertas y recolecciones', icon: 'bell' },
-  { label: 'Simulación EcoPunto', icon: 'recycle' },
 ]
 
 function App() {
@@ -126,7 +124,17 @@ function pageDescription(view: View, role: UserRole) {
 }
 
 function Subpage({ view, role }: { view: View; role: UserRole }) {
-  if (view === 'Simulación EcoPunto') return <SimulationPage />
+  if (view === 'Simulación EcoPunto' && role === 'CITIZEN') {
+    return <SimulationPage />
+  }
+
+  if (view === 'Simulación EcoPunto') {
+    return (
+      <section className="panel" role="alert">
+        No tienes permisos para abrir esta pantalla.
+      </section>
+    )
+  }
   if (view === 'Registrar depósito' && role === 'CITIZEN') return <DepositForm />
   if (view === 'Mis EcoPuntos' && role === 'CITIZEN') return <CitizenPoints />
   if (view === 'Historial' && role === 'CITIZEN') return <DepositHistory />
