@@ -1,113 +1,242 @@
 # Backend EcoPunto
 
-API REST de EcoPunto, construida con FastAPI, SQLAlchemy, Pydantic y SQLite. Esta guía describe el componente backend; la instalación del proyecto completo está en el [README principal](../README.md).
+API REST del proyecto **EcoPunto Autónomo**, desarrollada con FastAPI. Este componente administra la autenticación, los usuarios, los EcoPuntos, los materiales, los depósitos, los EcoPuntos acumulados, las alertas y las recolecciones.
 
-## Requisitos y dependencias
+La guía general del proyecto, incluida la instalación completa y las modalidades de conexión a bases de datos, se encuentra en el [README principal](../README.md).
 
-Python 3.11 o posterior. Las dependencias con sus rangos compatibles están declaradas en `requirements.txt`: FastAPI, Uvicorn, SQLAlchemy, Pydantic Settings, python-dotenv, PyJWT, pwdlib con Argon2, email-validator, pytest e httpx.
+## 1. Tecnologías
 
-Desde `backend/`, instala en un entorno virtual:
+- Python 3.11 o superior.
+- FastAPI.
+- Uvicorn.
+- SQLAlchemy.
+- Pydantic y Pydantic Settings.
+- SQLite para instalaciones independientes.
+- PostgreSQL para entornos compartidos.
+- PyJWT para autenticación mediante tokens.
+- Argon2 para el almacenamiento seguro de contraseñas.
+- Pytest para pruebas.
+
+Las dependencias y sus versiones compatibles se encuentran en `requirements.txt`.
+
+## 2. Requisitos previos
+
+Antes de ejecutar el backend, verifica que tengas instalado:
+
+- Python 3.11 o superior.
+- pip.
+- Git.
+
+## 3. Instalación
+
+Desde la raíz del proyecto, ingresa a la carpeta del backend:
+
+```powershell
+cd backend
+```
+
+Crea un entorno virtual:
 
 ```powershell
 py -3.11 -m venv .venv
+```
+
+Actívalo:
+
+```powershell
 .\.venv\Scripts\Activate.ps1
+```
+
+Instala las dependencias:
+
+```powershell
 python -m pip install -r requirements.txt
 ```
 
-Si no se dispone de `py`, usa `python -m venv .venv` después de instalar Python. Si PowerShell impide activar el entorno, usa `\.venv\Scripts\python.exe -m ...`.
+Si el comando `py -3.11` no está disponible, puedes utilizar:
 
-## Configuración
+```powershell
+python -m venv .venv
+```
 
-Usa `.env.example` como referencia y crea `backend/.env` localmente. No versionar ni compartir este archivo. Variables reconocidas por la configuración:
+## 4. Configuración del entorno
 
-| Variable | Propósito | Predeterminado o validación |
-| --- | --- | --- |
-| `DATABASE_URL` | Conexión SQLAlchemy | `sqlite:///./ecopunto.db` |
-| `JWT_SECRET_KEY` | Clave para firmar tokens | Si se configura debe tener al menos 32 caracteres; sin ella se usa una clave efímera por proceso |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Vigencia del token | 30 minutos; rango permitido 1–1440 |
-| `CORS_ORIGINS` | Lista JSON de orígenes permitidos | localhost y 127.0.0.1 en puerto 5173 |
-| `BOOTSTRAP_ADMIN_TOKEN` | Habilitación del primer ADMIN | Opcional; debe tener al menos 32 caracteres para habilitar la ruta |
+Crea el archivo `.env` a partir de la plantilla:
 
-Configura una `JWT_SECRET_KEY` privada y estable en desarrollo compartido para que reiniciar Uvicorn no invalide los tokens. Cada integrante debe generar sus propios valores secretos.
+```powershell
+Copy-Item .env.example .env
+```
 
-## Base de datos y seed
+El archivo `.env` contiene la configuración local del backend. No debe subirse al repositorio ni compartirse públicamente.
 
-Al iniciar la aplicación, SQLAlchemy `create_all` crea tablas que falten; no aplica migraciones a tablas ya existentes. SQLite usa por defecto `./ecopunto.db` relativo al directorio de trabajo. Ejecuta el seed desde `backend/` si necesitas datos de catálogo:
+Las principales variables son:
+
+| Variable | Descripción |
+|---|---|
+| `DATABASE_URL` | Dirección de conexión a la base de datos. |
+| `JWT_SECRET_KEY` | Clave privada para firmar los tokens de autenticación. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Tiempo de vigencia de los tokens. |
+| `CORS_ORIGINS` | Orígenes autorizados para consumir la API. |
+| `BOOTSTRAP_ADMIN_TOKEN` | Token temporal para crear el primer administrador. |
+
+### Base de datos
+
+El backend utiliza SQLite por defecto:
+
+```env
+DATABASE_URL=sqlite:///./ecopunto.db
+```
+
+Para conectar el backend a PostgreSQL en Supabase, configura `DATABASE_URL` con la cadena de conexión correspondiente al proyecto autorizado.
+
+No publiques credenciales, contraseñas ni claves privadas.
+
+### Seguridad
+
+Configura una `JWT_SECRET_KEY` privada y estable. Debe tener al menos 32 caracteres.
+
+En entornos compartidos, los integrantes autorizados deben utilizar la configuración de conexión y los valores secretos establecidos para el proyecto.
+
+## 5. Inicialización de la base de datos
+
+Al iniciar la aplicación, SQLAlchemy crea las tablas que no existan mediante `create_all`.
+
+Este procedimiento no modifica automáticamente las tablas existentes ni reemplaza un sistema de migraciones de esquema.
+
+Para cargar los datos iniciales del catálogo en una instalación independiente, ejecuta desde `backend/`:
 
 ```powershell
 python -m app.seed
 ```
 
-El seed crea de forma idempotente Aluminio (0.50 puntos/g), PET (0.25 puntos/g), un EcoPunto y sus compartimentos. No crea usuarios ni credenciales.
+El seed incorpora:
 
-## Crear el primer ADMIN
+- Material Aluminio.
+- Material PET.
+- Factores iniciales de asignación de puntos.
+- Un EcoPunto de ejemplo.
+- Sus compartimentos.
 
-`POST /api/v1/auth/bootstrap-admin` requiere `BOOTSTRAP_ADMIN_TOKEN` y el encabezado `X-Bootstrap-Token`. Solo crea el primer administrador cuando todavía no existe uno. Un valor ausente o inválido produce 404; si ya hay ADMIN, devuelve 409. Consulta el procedimiento seguro en [README principal — cuentas y roles](../README.md#cuentas-y-roles). No se mantienen credenciales predeterminadas.
+El seed no crea usuarios ni contraseñas.
 
-Los ciudadanos se registran públicamente con `POST /auth/register`; ese endpoint siempre asigna CITIZEN. Un ADMIN puede crear cuentas mediante `POST /users`; el backend recibe rol, correo, nombre y contraseña y aplica autenticación por rol.
+**Importante:** no ejecutes el seed sobre la base de datos compartida de Supabase sin autorización.
 
-## Ejecutar el servidor y comprobar salud
+## 6. Crear el primer administrador
 
-Desde `backend/` con el entorno virtual activo:
+El primer usuario ADMIN se crea mediante:
+
+```http
+POST /api/v1/auth/bootstrap-admin
+```
+
+Este procedimiento requiere configurar `BOOTSTRAP_ADMIN_TOKEN` y enviar el encabezado:
+
+```http
+X-Bootstrap-Token: valor_configurado
+```
+
+La ruta solamente permite crear el primer administrador cuando todavía no existe uno.
+
+Después de realizar el proceso, deshabilita el token temporal.
+
+Los ciudadanos pueden registrarse mediante el endpoint público de registro. El registro público asigna exclusivamente el rol `CITIZEN`.
+
+Los usuarios con rol ADMIN pueden crear otras cuentas mediante el endpoint de gestión de usuarios.
+
+## 7. Ejecución del servidor
+
+Desde la carpeta `backend/`, con el entorno virtual activo:
 
 ```powershell
 python -m uvicorn app.main:app --reload
 ```
 
-- API: `http://127.0.0.1:8000`
-- Swagger/OpenAPI: `http://127.0.0.1:8000/docs`
-- Health: `http://127.0.0.1:8000/health`
+El servidor estará disponible en:
 
-## Rutas y permisos
+- API: http://127.0.0.1:8000
+- Documentación Swagger: http://127.0.0.1:8000/docs
+- Health check: http://127.0.0.1:8000/health
 
-Las rutas siguientes se agregan bajo `/api/v1`. Toda ruta privada requiere `Authorization: Bearer <access_token>`.
+Swagger permite consultar los endpoints, sus parámetros, los modelos de datos y los requisitos de autenticación.
 
-| Método | Ruta | Acceso |
-| --- | --- | --- |
-| `POST` | `/auth/register` | Público; crea CITIZEN |
-| `POST` | `/auth/login` | Público; devuelve access token Bearer |
-| `POST` | `/auth/bootstrap-admin` | Encabezado temporal; primer ADMIN solamente |
-| `GET` | `/users/me` | Cualquier usuario autenticado |
-| `POST` | `/users` | ADMIN; provisiona una cuenta con rol especificado |
-| `GET` | `/materials` | Cualquier usuario autenticado; ADMIN también recibe inactivos |
-| `POST`, `PATCH` | `/materials`, `/materials/{id}` | ADMIN |
-| `GET` | `/ecopoints`, `/ecopoints/{id}` | Cualquier usuario autenticado; ADMIN puede consultar inactivos |
-| `POST`, `PATCH` | `/ecopoints`, `/ecopoints/{id}` | ADMIN |
-| `GET` | `/ecopoints/{id}/compartments` | Cualquier usuario autenticado; ADMIN también recibe inactivos |
-| `POST` | `/ecopoints/{id}/compartments` | ADMIN |
-| `PATCH` | `/compartments/{id}` | ADMIN |
-| `POST` | `/deposits` | CITIZEN; el propietario se deriva del JWT |
-| `GET` | `/deposits/me` | CITIZEN; depósitos propios |
-| `GET` | `/deposits/{id}` | Dueño del depósito o ADMIN |
-| `GET` | `/points/balance`, `/points/transactions` | CITIZEN |
-| `GET` | `/alerts` | ADMIN y RECYCLER |
-| `PATCH` | `/alerts/{id}/resolve` | ADMIN y RECYCLER |
-| `POST` | `/collections` | RECYCLER |
-| `GET` | `/collections` | ADMIN: todas; RECYCLER: propias |
-| `GET` | `/collections/{id}` | ADMIN o reciclador responsable |
+## 8. Endpoints principales
 
-No existe un endpoint `GET /deposits` para listar depósitos de todos los ciudadanos. ADMIN solo puede consultar un depósito individual si conoce su ID. Tampoco existen endpoints de beneficios/redenciones ni de métricas agregadas.
+Todos los endpoints se encuentran bajo el prefijo `/api/v1`.
 
-## Reglas de negocio principales
+| Módulo | Endpoint | Funcionalidad |
+|---|---|---|
+| Autenticación | `POST /auth/register` | Registro de ciudadanos. |
+| Autenticación | `POST /auth/login` | Inicio de sesión. |
+| Autenticación | `POST /auth/bootstrap-admin` | Creación del primer administrador. |
+| Usuarios | `GET /users/me` | Consulta del perfil autenticado. |
+| Usuarios | `POST /users` | Creación de usuarios por ADMIN. |
+| Materiales | `/materials` | Consulta y administración de materiales. |
+| EcoPuntos | `/ecopoints` | Consulta y administración de EcoPuntos. |
+| Compartimentos | `/compartments` | Administración de compartimentos. |
+| Depósitos | `POST /deposits` | Registro de depósitos ciudadanos. |
+| Depósitos | `GET /deposits/me` | Consulta de depósitos propios. |
+| Depósitos | `GET /deposits/{id}` | Consulta de un depósito individual con permisos. |
+| Puntos | `/points/balance` | Consulta del saldo de puntos. |
+| Puntos | `/points/transactions` | Consulta de transacciones. |
+| Alertas | `/alerts` | Consulta de alertas. |
+| Recolecciones | `/collections` | Registro y consulta de recolecciones. |
 
-- El ciudadano envía EcoPunto, material, compartimento y peso en gramos. El backend asocia el ciudadano desde JWT.
-- `weight_g` debe ser entero positivo y no superar 100.000 g.
-- El compartimento debe pertenecer al EcoPunto y al material indicados; el depósito no puede superar la capacidad disponible.
-- Los puntos se calculan con el factor vigente del material, redondeados a cuatro decimales. El factor aplicado queda asociado al depósito.
-- Depósito, actualización del compartimento, transacción de puntos y eventual alerta se confirman en una transacción de base de datos.
-- `POST /collections` registra una recolección como `COMPLETED`, reduce el peso y resuelve alertas activas cuando el nivel cae por debajo del umbral. No hay programación de rutas.
-- La resolución manual de una alerta usa `PATCH /alerts/{id}/resolve`.
+Las operaciones disponibles y sus permisos dependen del rol autenticado. Para consultar los métodos HTTP y parámetros específicos, utiliza Swagger.
 
-## Pruebas
+No existe un endpoint general `GET /deposits` para listar todos los depósitos de los ciudadanos.
 
-Desde `backend/`:
+## 9. Reglas de negocio
+
+- El ciudadano registra un depósito indicando EcoPunto, material, compartimento y peso en gramos.
+- La identidad del ciudadano se obtiene del token de autenticación.
+- El peso debe ser un entero positivo y no superar los 100.000 gramos.
+- El compartimento debe pertenecer al EcoPunto y al material indicados.
+- El depósito no puede superar la capacidad disponible del compartimento.
+- Los puntos se calculan utilizando el factor vigente del material y se redondean a cuatro decimales.
+- El factor aplicado queda asociado al depósito.
+- El registro del depósito, la actualización del compartimento y la transacción de puntos se gestionan dentro de una transacción de base de datos.
+- Las recolecciones registradas reducen el peso acumulado y pueden resolver alertas según el nivel del compartimento.
+
+## 10. Pruebas
+
+Para ejecutar las pruebas automatizadas, utiliza:
 
 ```powershell
 python -m pytest -q
 ```
 
-Las pruebas sustituyen la conexión por SQLite en memoria mediante `StaticPool`; no utilizan el archivo de base de datos local.
+Las pruebas utilizan SQLite en memoria y no requieren modificar la base de datos local.
 
-## Límites actuales
+## 11. Limitaciones actuales
 
-El frontend conecta autenticación, operaciones ciudadanas de depósito/puntos y gestión administrativa de catálogo. La interfaz de alertas y recolecciones para ADMIN/RECYCLER aún está pendiente. También faltan beneficios/redenciones y métricas agregadas. No hay sensores, cámaras, IA de clasificación ni integración con hardware.
+El backend todavía no dispone de funcionalidades para:
+
+- Beneficios y redenciones de puntos.
+- Métricas agregadas.
+- Clasificación automática de residuos mediante inteligencia artificial.
+- Integración con sensores, cámaras o hardware físico.
+- Programación automática de rutas de recolección.
+
+La simulación 3D representa visualmente el funcionamiento propuesto de EcoPunto, pero no implica una conexión real con dispositivos físicos.
+
+## 12. Estructura general
+
+```text
+backend/
+├── app/
+│   ├── core/
+│   ├── models/
+│   ├── routers/
+│   ├── schemas/
+│   ├── services/
+│   ├── seed.py
+│   └── main.py
+├── docs/
+├── scripts/
+├── tests/
+├── .env.example
+├── requirements.txt
+└── README.md
+```
+
+Para conocer la estructura completa y las instrucciones de ejecución del sistema, consulta el [README principal](../README.md).
